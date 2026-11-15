@@ -673,8 +673,8 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
                 Modifier.fillMaxWidth().drawBehind { drawLine(pal.rule, Offset(0f, 0f), Offset(size.width, 0f), 1f) }.padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
             ) {
-                IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
                 IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
+                IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
                 Box(Modifier.size(40.dp).clickable { finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange() }, Alignment.Center) {
                     ArrowIcon(right = bucket == "now", color = pal.sub)
                 }
