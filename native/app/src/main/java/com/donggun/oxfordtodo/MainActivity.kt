@@ -10,6 +10,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -75,6 +79,8 @@ fun SettingsPane() {
         HorizontalDivider()
         StoragePane(db)
         HorizontalDivider()
+        FontPane()
+        HorizontalDivider()
         OutlinedButton(onClick = { ctx.startActivity(Intent(ctx, LockActivity::class.java)) }) { Text("잠금화면 메모 화면 미리보기") }
     }
 }
@@ -139,4 +145,28 @@ fun StoragePane(db: Db) {
         Button(onClick = { SyncState.sync(ctx, true) }) { Text("지금 동기화") }
     }
     if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.bodySmall)
+}
+
+
+@Composable
+fun FontPane() {
+    val ctx = LocalContext.current
+    var opts by remember { mutableStateOf<List<FontPref.Opt>?>(null) }
+    LaunchedEffect(Unit) { opts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { FontPref.options() } }
+    Text("글꼴", style = MaterialTheme.typography.titleMedium)
+    Text("메모에 쓸 글꼴을 골라요. 이 폰에 들어 있는 글꼴만 나와요.", style = MaterialTheme.typography.bodySmall)
+    val list = opts
+    if (list == null) Text("글꼴 목록을 불러오는 중…", style = MaterialTheme.typography.bodySmall)
+    else list.forEach { o ->
+        val on = FontPref.id == o.id
+        Column(
+            Modifier.fillMaxWidth()
+                .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                .clickable { FontPref.set(ctx, o) }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Text(o.name, style = MaterialTheme.typography.labelSmall)
+            Text("가나다라 오늘 할 일 Abc 123", fontFamily = o.family, fontSize = 19.sp)
+        }
+    }
 }

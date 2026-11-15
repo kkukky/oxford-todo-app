@@ -84,7 +84,7 @@ val DarkPal = Pal(
 )
 val LocalPal = staticCompositionLocalOf { LightPal }
 
-val Gaegu = FontFamily(Font(R.font.gaegu_regular, FontWeight.Normal), Font(R.font.gaegu_bold, FontWeight.Bold))
+val Gaegu: FontFamily get() = FontPref.family
 
 /** 어절이 아니라 글자 단위로 줄바꿈: 글자 사이마다 폭 없는 공백(U+200B)을 끼워 넣는다 */
 private fun brk(t: String): String {
@@ -175,6 +175,9 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val pager = rememberPagerState { if (lock) 1 else 4 }
+    val fm = LocalFocusManager.current
+    remember { FontPref.load(ctx) }
+    LaunchedEffect(pager.currentPage) { fm.clearFocus() }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
 
@@ -196,7 +199,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
 
     CompositionLocalProvider(LocalPal provides pal) {
         Column(Modifier.fillMaxSize().background(pal.bg)) {
-            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { searching = !searching; showSettings = false }
+            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { fm.clearFocus(); showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { fm.clearFocus(); searching = !searching; showSettings = false }
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
             val bucket = if (page == 1) "later" else "now"
@@ -424,10 +427,29 @@ private fun Placeholder(msg: String) {
 }
 
 /** 눌러서 쓰면 5줄 높이로 커지는 입력칸. Enter를 누르면 onSubmit */
+/** 입력창에서 저장하지 않고 벗어났을 때 저장할지 묻는다 */
+@Composable
+private fun SaveAsk(text: String, onSave: () -> Unit, onDiscard: () -> Unit, onBack: () -> Unit) {
+    val short = text.replace(Regex("\\s+"), " ").trim().let { if (it.length > 24) it.take(24) + "…" else it }
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text("저장할까요?") },
+        text = { Text("‘$short’ 내용을 저장하지 않고 벗어났어요.") },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onBack) { Text("계속 쓰기") }
+                TextButton(onClick = onDiscard) { Text("저장 안 함") }
+                TextButton(onClick = onSave) { Text("저장") }
+            }
+        },
+    )
+}
+
 @Composable
 private fun NoteInput(
     value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
     modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {}, fit: Boolean = false,
+    enterSubmits: Boolean = false, focusRequester: FocusRequester? = null,
 ) {
     val pal = LocalPal.current
     var focused by remember { mutableStateOf(false) }
@@ -437,8 +459,9 @@ private fun NoteInput(
     val fitRows = kotlin.math.ceil((lines * 24 + (ROW.value - 24)) / ROW.value).toInt().coerceAtLeast(1)
     BasicTextField(
         value = value,
-        onValueChange = { v -> if (v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
-        modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
+        onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
+        modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
         visualTransformation = CharBreak,
@@ -507,6 +530,7 @@ private fun ItemBlock(
 ) {
     val db = Db.get(LocalContext.current)
     val pal = LocalPal.current
+    val fm = LocalFocusManager.current
     var editing by remember(item.id) { mutableStateOf(false) }
     var lines by remember(item.id, item.title) { mutableIntStateOf(1) }
     val dStart by rememberUpdatedState(onDragStart); val dMove by rememberUpdatedState(onDrag)
@@ -517,7 +541,7 @@ private fun ItemBlock(
         if (editing) {
             TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
         } else Row(
-            Modifier.fillMaxWidth().height(ROW * rows).ruled().clickable(onClick = onToggle)
+            Modifier.fillMaxWidth().height(ROW * rows).ruled().clickable(onClick = { fm.clearFocus(); onToggle() })
                 .pointerInput(item.id) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { dStart() }, onDrag = { c, a -> c.consume(); dMove(a.y) },
@@ -573,15 +597,25 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
     val fr = remember { FocusRequester() }
     var finished by remember { mutableStateOf(false) }
     var hadFocus by remember { mutableStateOf(false) }
+    var ask by remember { mutableStateOf(false) }
+    var back by remember { mutableIntStateOf(0) }
+    val win = androidx.compose.ui.platform.LocalWindowInfo.current
+    LaunchedEffect(back) { if (back > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
     fun finish() { if (finished) return; finished = true; db.setTitle(item.id, tf.text); onDone() }
     LaunchedEffect(Unit) { fr.requestFocus() }
     Column(Modifier.fillMaxWidth()) {
         BasicTextField(
             value = tf,
-            onValueChange = { v -> if (v.text.contains('\n')) finish() else tf = v.copy(text = v.text.take(400)) },
+            onValueChange = { v -> tf = v.copy(text = v.text.take(400)) },
             modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled()
                 .padding(start = MARGIN + 10.dp, end = 10.dp, top = 13.dp)
-                .focusRequester(fr).onFocusChanged { if (it.isFocused) hadFocus = true else if (hadFocus) finish() },
+                .focusRequester(fr).onFocusChanged {
+                    if (it.isFocused) hadFocus = true
+                    else if (hadFocus && !finished && !ask && win.isWindowFocused) {
+                        val v = tf.text.trim()
+                        if (v.isEmpty() || v == item.title) finish() else ask = true
+                    }
+                },
             textStyle = TextStyle(color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
             cursorBrush = SolidColor(pal.pen),
             visualTransformation = CharBreak,
@@ -598,6 +632,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
             }
             Spacer(Modifier.width(6.dp))
         }
+        if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
     }
 }
 
@@ -606,6 +641,16 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
     val db = Db.get(LocalContext.current)
     val pal = LocalPal.current
     var desc by remember(item.id) { mutableStateOf(item.description) }
+    var savedDesc by remember(item.id) { mutableStateOf(item.description) }
+    var descFocused by remember(item.id) { mutableStateOf(false) }
+    var askDesc by remember(item.id) { mutableStateOf(false) }
+    var descRefocus by remember(item.id) { mutableIntStateOf(0) }
+    val descFr = remember(item.id) { FocusRequester() }
+    val win = androidx.compose.ui.platform.LocalWindowInfo.current
+    LaunchedEffect(descRefocus) { if (descRefocus > 0) { kotlinx.coroutines.delay(150); descFr.requestFocus() } }
+    // 패널이 닫힐 때 저장 안 된 설명이 남아 있으면 그대로 저장해 둔다
+    val descNow by rememberUpdatedState(desc); val savedNow by rememberUpdatedState(savedDesc)
+    DisposableEffect(item.id) { onDispose { if (descNow != savedNow) db.setDesc(item.id, descNow) } }
     var v by remember(item.id) { mutableIntStateOf(0) }
     var logOpen by remember(item.id) { mutableStateOf(false) }
     var newStep by remember(item.id) { mutableStateOf("") }
@@ -624,8 +669,16 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("설명", color = pal.sub, fontSize = 10.sp) }
             Spacer(Modifier.width(8.dp))
-            NoteInput(desc, { desc = it; db.setDesc(item.id, it) }, "설명 적기", 120, { focus.clearFocus() }, Modifier.weight(1f).padding(end = 10.dp), 17f, fit = true)
+            NoteInput(
+                desc, { desc = it }, "설명 적기", 120, {}, Modifier.weight(1f).padding(end = 6.dp), 17f,
+                onFocus = { f -> if (!f && descFocused && win.isWindowFocused && desc != savedDesc && !askDesc) askDesc = true; descFocused = f },
+                fit = true, focusRequester = descFr,
+            )
+            if (descFocused) Box(Modifier.size(width = 40.dp, height = ROW).clickable { db.setDesc(item.id, desc); savedDesc = desc; focus.clearFocus() }, Alignment.Center) {
+                Text("✓", color = pal.pen, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
         }
+        if (askDesc) SaveAsk(desc, onSave = { askDesc = false; db.setDesc(item.id, desc); savedDesc = desc }, onDiscard = { askDesc = false; desc = savedDesc }, onBack = { askDesc = false; descRefocus++ })
         // 로그 (자동 기록, 읽기 전용)
         Row(Modifier.fillMaxWidth().height(ROW).ruled().clickable { logOpen = !logOpen }, verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(MARGIN), Alignment.Center) { Text("로그", color = pal.sub, fontSize = 10.sp) }
@@ -696,7 +749,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
             Spacer(Modifier.width(8.dp))
             NoteInput(
                 newStep, { newStep = it }, if (steps.isEmpty()) "첫 번째 절차를 적어 보세요" else "다음 절차 적고 Enter", 80,
-                { db.addStep(item.id, newStep); newStep = ""; refresh() }, Modifier.weight(1f), 16f,
+                { db.addStep(item.id, newStep); newStep = ""; refresh() }, Modifier.weight(1f), 16f, enterSubmits = true,
             )
         }
         Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically) {
@@ -730,14 +783,20 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
     var star by remember { mutableStateOf(false) }
     var urgent by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
+    var ask by remember { mutableStateOf(false) }
+    var refocus by remember { mutableIntStateOf(0) }
+    val fr = remember { FocusRequester() }
+    val win = androidx.compose.ui.platform.LocalWindowInfo.current
+    LaunchedEffect(refocus) { if (refocus > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
     fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent); t = ""; star = false; urgent = false; onChange() } }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.width(10.dp))
             NoteInput(
-                t, { t = it }, if (bucket == "now") "지금 할 일 적고 Enter" else "나중에 할 일 적고 Enter", 80, { submit() },
-                Modifier.weight(1f).padding(end = 10.dp), 18f, onFocus = { focused = it },
+                t, { t = it }, if (bucket == "now") "지금 할 일 적고 ✓" else "나중에 할 일 적고 ✓", 80, { submit() },
+                Modifier.weight(1f).padding(end = 10.dp), 18f, focusRequester = fr,
+                onFocus = { f -> if (!f && focused && win.isWindowFocused && t.isNotBlank() && !ask) ask = true; focused = f },
             )
         }
         // 입력칸 아래, 오른쪽 정렬: ☆ ! ✓
@@ -751,6 +810,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
                 Spacer(Modifier.width(6.dp))
             }
         }
+        if (ask) SaveAsk(t, onSave = { ask = false; submit() }, onDiscard = { ask = false; t = ""; star = false; urgent = false }, onBack = { ask = false; refocus++ })
     }
 }
 
