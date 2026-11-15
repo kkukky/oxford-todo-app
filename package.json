@@ -1,0 +1,17 @@
+{
+  "name": "oxford-todo-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "옥스포드 투두 노트패드 (안드로이드 앱)",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@fontsource/gaegu": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.1"
+  }
+}

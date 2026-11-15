@@ -1,0 +1,13 @@
+{
+  "appId": "com.donggun.oxfordtodo",
+  "appName": "옥스포드 투두",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#101e31"
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">옥스포드 투두</string>
+    <string name="title_activity_main">옥스포드 투두</string>
+    <string name="package_name">com.donggun.oxfordtodo</string>
+    <string name="custom_url_scheme">com.donggun.oxfordtodo</string>
+</resources>
