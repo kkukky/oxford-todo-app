@@ -156,6 +156,12 @@ fun StoragePane(db: Db) {
     }
 
     if (fsLabel.isNotEmpty() || gdOn) {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.KOREA)
+        fun at(ms: String) = ms.toLongOrNull()?.let { fmt.format(java.util.Date(it)) } ?: "아직 없음"
+        val lastCheck = remember(st) { at(db.getSetting("last_check", "")) }
+        val lastChange = remember(st) { at(db.getSetting("last_change", "")) }
+        Text("마지막 확인: $lastCheck", style = MaterialTheme.typography.bodySmall)
+        Text("마지막 변경 반영: $lastChange", style = MaterialTheme.typography.bodySmall)
         if (st.isNotEmpty()) Text(st, style = MaterialTheme.typography.bodySmall)
         Button(onClick = { SyncState.sync(ctx, true) }) { Text("지금 동기화") }
     }

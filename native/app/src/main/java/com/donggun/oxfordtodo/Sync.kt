@@ -121,12 +121,14 @@ object Sync {
     private fun gdErr(txt: String): String = try { JSONObject(txt).getJSONObject("error").getString("message") } catch (e: Exception) { txt.take(120) }
     private fun q(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun firstId(tok: String, query: String): String {
-        val (code, txt) = gd("GET", "https://www.googleapis.com/drive/v3/files?q=${q(query)}&fields=files(id)&spaces=drive&pageSize=1", tok)
+    /** (파일 id, 내용 해시) — 없으면 ("", "") */
+    private fun firstFile(tok: String, query: String): Pair<String, String> {
+        val (code, txt) = gd("GET", "https://www.googleapis.com/drive/v3/files?q=${q(query)}&fields=files(id,md5Checksum)&spaces=drive&pageSize=1", tok)
         if (code !in 200..299) throw SyncError("드라이브 조회 실패: " + gdErr(txt))
         val a = JSONObject(txt).optJSONArray("files")
-        return if (a != null && a.length() > 0) a.getJSONObject(0).getString("id") else ""
+        return if (a != null && a.length() > 0) a.getJSONObject(0).getString("id") to a.getJSONObject(0).optString("md5Checksum", "") else "" to ""
     }
+    private fun firstId(tok: String, query: String): String = firstFile(tok, query).first
 
     private fun ensureFolder(tok: String): String {
         val id = firstId(tok, "name='${Store.DIR}' and mimeType='$FOLDER_MIME' and trashed=false")
@@ -150,7 +152,18 @@ object Sync {
         }
     }
 
-    /** 폰 폴더 · 드라이브에서 읽어 합치고, 합친 결과를 다시 쓴다. 반환: (저장한 곳 수, 가져온 레코드 수) */
+    // ---------- 마지막으로 동기화한 내용 사본 (앱 저장소) ----------
+    private fun snapFile(ctx: Context, name: String) = java.io.File(java.io.File(ctx.filesDir, "sync").also { it.mkdirs() }, name)
+    private fun readSnap(ctx: Context, name: String): String? = try { snapFile(ctx, name).takeIf { it.exists() }?.readText(Charsets.UTF_8) } catch (e: Exception) { null }
+    private fun writeSnap(ctx: Context, name: String, text: String) { try { snapFile(ctx, name).writeText(text, Charsets.UTF_8) } catch (e: Exception) {} }
+    private fun md5(text: String): String = java.security.MessageDigest.getInstance("MD5").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    /**
+     * 마지막으로 동기화한 사본(구글 드라이브용·폰 폴더용)과 비교해서 달라진 쪽만 읽거나 쓴다.
+     *  - 드라이브 파일의 해시가 지난번과 같으면 내려받지 않고, 앱 내용이 사본과 같으면 올리지 않는다.
+     *  - 폰 폴더 파일이 사본과 같으면 합치지 않고, 앱 내용과 같으면 다시 쓰지 않는다.
+     * 반환: (저장한 곳 수, 가져온 레코드 수). 둘 다 0이면 바뀐 게 없어 건너뛴 것.
+     */
     fun run(ctx: Context): Pair<Int, Int> {
         val db = Db.get(ctx)
         val raw = db.writableDatabase
@@ -158,28 +171,39 @@ object Sync {
         var saved = 0; var got = 0
 
         val fsText = if (useFs) Store.read(ctx) else null
-        if (fsText != null) got += merge(raw, fsText)
+        val snapFs = if (useFs) readSnap(ctx, "last_phone.json") else null
+        if (fsText != null && fsText != snapFs) got += merge(raw, fsText)
 
-        var tok = ""; var folderId = ""; var fileId = ""; var gdText: String? = null
+        var tok = ""; var folderId = ""; var fileId = ""; var remoteMd5 = ""
         if (useGd) {
             tok = driveToken(ctx)
             folderId = ensureFolder(tok)
-            fileId = firstId(tok, "'$folderId' in parents and name='${Store.FILE}' and trashed=false")
-            if (fileId.isNotEmpty()) {
+            val f = firstFile(tok, "'$folderId' in parents and name='${Store.FILE}' and trashed=false")
+            fileId = f.first; remoteMd5 = f.second
+            val lastMd5 = db.getSetting("gd_md5", "")
+            if (fileId.isNotEmpty() && (remoteMd5.isEmpty() || remoteMd5 != lastMd5)) {
                 val (code, txt) = gd("GET", "https://www.googleapis.com/drive/v3/files/$fileId?alt=media", tok)
                 if (code !in 200..299) throw SyncError("드라이브 읽기 실패: " + gdErr(txt))
-                gdText = txt
                 got += merge(raw, txt)
             }
         }
 
         val out = export(raw)
-        if (useFs && fsText != out) {
+        if (useFs && (fsText == null || fsText != out)) {
             if (!Store.write(ctx, out)) throw SyncError("폰 폴더에 저장하지 못했어요. 설정에서 폴더를 다시 선택해 주세요")
             saved++
         }
-        if (useGd && gdText != out) { upload(tok, folderId, fileId, out); saved++ }
-        db.setSetting("last_sync", System.currentTimeMillis().toString())
+        if (useFs) writeSnap(ctx, "last_phone.json", out)
+        if (useGd) {
+            val snapGd = readSnap(ctx, "last_drive.json")
+            val outMd5 = md5(out)
+            if (fileId.isEmpty() || out != snapGd || remoteMd5 != outMd5) { upload(tok, folderId, fileId, out); saved++ }
+            writeSnap(ctx, "last_drive.json", out)
+            db.setSetting("gd_md5", outMd5)
+        }
+        val now = System.currentTimeMillis().toString()
+        db.setSetting("last_check", now)
+        if (saved > 0 || got > 0) db.setSetting("last_change", now)
         return saved to got
     }
 }

@@ -1029,7 +1029,7 @@ object SyncState {
         Thread {
             try {
                 val (up, down) = Sync.run(ctx)
-                status.value = "저장 완료 (갱신 ${up}곳 · 가져온 변경 ${down}건)"
+                status.value = if (up == 0 && down == 0) "바뀐 내용이 없어서 동기화를 건너뛰었어요" else "동기화 완료 (저장 ${up}곳 · 가져온 변경 ${down}건)"
                 if (down > 0 || force) rev.intValue++
             } catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName) }
             finally { busy.set(false) }
