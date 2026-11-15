@@ -427,19 +427,24 @@ private fun Placeholder(msg: String) {
 @Composable
 private fun NoteInput(
     value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
-    modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {},
+    modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {}, fit: Boolean = false,
 ) {
     val pal = LocalPal.current
     var focused by remember { mutableStateOf(false) }
+    var lines by remember { mutableIntStateOf(1) }
+    // fit: 입력을 마친 뒤에도 여러 줄을 노트줄 배수 높이로 전부 보여준다
+    val multi = fit && !focused && lines > 1
+    val fitRows = kotlin.math.ceil((lines * 24 + (ROW.value - 24)) / ROW.value).toInt().coerceAtLeast(1)
     BasicTextField(
         value = value,
         onValueChange = { v -> if (v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
-        modifier = modifier.height(if (focused) ROW * 5 else ROW).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
+        modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
         visualTransformation = CharBreak,
+        onTextLayout = { lines = it.lineCount },
         decorationBox = { inner ->
-            Box(Modifier.fillMaxSize().padding(top = if (focused) 13.dp else 0.dp), if (focused) Alignment.TopStart else Alignment.CenterStart) {
+            Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
                 if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
                 inner()
             }
@@ -616,10 +621,10 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
 
     Column(Modifier.fillMaxWidth().background(pal.panel)) {
         // 설명 + ☆ ! ↓
-        Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("설명", color = pal.sub, fontSize = 10.sp) }
             Spacer(Modifier.width(8.dp))
-            NoteInput(desc, { desc = it; db.setDesc(item.id, it) }, "설명 적기", 120, { focus.clearFocus() }, Modifier.weight(1f).padding(end = 10.dp), 17f)
+            NoteInput(desc, { desc = it; db.setDesc(item.id, it) }, "설명 적기", 120, { focus.clearFocus() }, Modifier.weight(1f).padding(end = 10.dp), 17f, fit = true)
         }
         // 로그 (자동 기록, 읽기 전용)
         Row(Modifier.fillMaxWidth().height(ROW).ruled().clickable { logOpen = !logOpen }, verticalAlignment = Alignment.CenterVertically) {
@@ -727,7 +732,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent); t = ""; star = false; urgent = false; onChange() } }
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.width(10.dp))
             NoteInput(
