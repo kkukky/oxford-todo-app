@@ -665,6 +665,7 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
     val nextId = steps.firstOrNull { !it.done }?.id
     var sec by remember { mutableLongStateOf(0L) }
     var running by remember { mutableStateOf(true) }
+    var awake by remember { mutableStateOf(db.getSetting("focus_awake", "1") == "1") }
     LaunchedEffect(running) { while (running) { kotlinx.coroutines.delay(1000); sec++ } }
     fun end() { if (sec >= 60) db.focusLog(item.id, sec / 60); onClose() }
     val time = (sec / 3600).let { h -> if (h > 0) "%d:%02d:%02d".format(h, (sec % 3600) / 60, sec % 60) else "%02d:%02d".format((sec % 3600) / 60, sec % 60) }
@@ -673,7 +674,7 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         val view = androidx.compose.ui.platform.LocalView.current
-        DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
+        DisposableEffect(awake) { view.keepScreenOn = awake; onDispose { view.keepScreenOn = false } }
         val dd = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
             Column(Modifier.fillMaxSize().background(pal.bg).navigationBarsPadding()) {
@@ -695,6 +696,14 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
                         Text(
                             "처음부터", color = pal.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                             modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, pal.ink, RoundedCornerShape(50)).clickable { sec = 0 }.padding(horizontal = 18.dp, vertical = 11.dp),
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Text(
+                            if (awake) "☀ 화면 꺼짐 방지: 켜짐" else "☾ 화면 꺼짐 방지: 꺼짐",
+                            color = if (awake) pal.bg else pal.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).then(if (awake) Modifier.background(pal.ink) else Modifier.border(1.dp, pal.ink, RoundedCornerShape(50)))
+                                .clickable { awake = !awake; db.setSetting("focus_awake", if (awake) "1" else "0") }.padding(horizontal = 18.dp, vertical = 11.dp),
                         )
                     }
                     steps.forEach { s ->
