@@ -538,9 +538,8 @@ private fun ItemBlock(
     val rows = maxOf(1, Math.ceil(((lines * 24 + 6) / 50.0)).toInt())
 
     Column(Modifier.fillMaxWidth().then(if (dragging) Modifier.background(pal.bg) else Modifier)) {
-        if (editing) {
-            TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
-        } else Row(
+        if (editing) TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
+        Row(
             Modifier.fillMaxWidth().height(ROW * rows).ruled().clickable(onClick = { fm.clearFocus(); onToggle() })
                 .pointerInput(item.id) {
                     detectDragGesturesAfterLongPress(
@@ -596,44 +595,51 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
     var tf by remember(item.id) { mutableStateOf(TextFieldValue(start, TextRange(start.length))) }
     val fr = remember { FocusRequester() }
     var finished by remember { mutableStateOf(false) }
-    var hadFocus by remember { mutableStateOf(false) }
     var ask by remember { mutableStateOf(false) }
     var back by remember { mutableIntStateOf(0) }
-    val win = androidx.compose.ui.platform.LocalWindowInfo.current
     LaunchedEffect(back) { if (back > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
-    fun finish() { if (finished) return; finished = true; db.setTitle(item.id, tf.text); onDone() }
     LaunchedEffect(Unit) { fr.requestFocus() }
-    Column(Modifier.fillMaxWidth()) {
-        BasicTextField(
-            value = tf,
-            onValueChange = { v -> tf = v.copy(text = v.text.take(400)) },
-            modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled()
-                .padding(start = MARGIN + 10.dp, end = 10.dp, top = 13.dp)
-                .focusRequester(fr).onFocusChanged {
-                    if (it.isFocused) hadFocus = true
-                    else if (hadFocus && !finished && !ask && win.isWindowFocused) {
-                        val v = tf.text.trim()
-                        if (v.isEmpty() || v == item.title) finish() else ask = true
-                    }
-                },
-            textStyle = TextStyle(color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
-            cursorBrush = SolidColor(pal.pen),
-            visualTransformation = CharBreak,
-        )
-        // 아래 오른쪽: 중요 · 긴급 · 옮기기 · 마침
-        Row(Modifier.fillMaxWidth().height(ROW).background(pal.panel).ruled(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-            IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
-            IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
-            IconBtn(if (bucket == "now") "↓" else "↑", false) {
-                finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange()
-            }
-            Box(Modifier.size(40.dp).clickable { finish() }, Alignment.Center) {
-                Text("✓", color = pal.pen, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.width(6.dp))
-        }
-        if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
+    fun finish() { if (finished) return; finished = true; db.setTitle(item.id, tf.text); onDone() }
+    fun close() {
+        if (finished) return
+        val v = tf.text.trim()
+        if (v.isEmpty() || v == item.title) { finished = true; onDone() } else ask = true
     }
+    // 전체 화면 편집창
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { close() },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(Modifier.fillMaxSize().background(pal.bg).imePadding().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp + 0.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clickable { close() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
+                Text("할 일 수정", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(48.dp))
+            }
+            BasicTextField(
+                value = tf,
+                onValueChange = { v -> tf = v.copy(text = v.text.take(400)) },
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp).focusRequester(fr),
+                textStyle = TextStyle(color = pal.pen, fontSize = 22.sp, fontFamily = Gaegu, lineHeight = 33.sp),
+                cursorBrush = SolidColor(pal.pen),
+                visualTransformation = CharBreak,
+            )
+            Row(
+                Modifier.fillMaxWidth().drawBehind { drawLine(pal.rule, Offset(0f, 0f), Offset(size.width, 0f), 1f) }.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
+            ) {
+                IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
+                IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
+                IconBtn(if (bucket == "now") "↓" else "↑", false) {
+                    finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange()
+                }
+                Box(Modifier.size(44.dp).clickable { finish() }, Alignment.Center) {
+                    Text("✓", color = pal.pen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+    if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
 }
 
 @Composable
