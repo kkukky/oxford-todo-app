@@ -172,6 +172,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var showSettings by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("all") }
     var tickLocal by remember { mutableIntStateOf(0) }
+    var addReq by remember { mutableStateOf("" to 0) }
     val tick = tickLocal + SyncState.rev.intValue
     val open = remember { mutableStateMapOf<String, Boolean>() }
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
@@ -230,8 +231,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
-                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0)
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0)
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                             }
@@ -239,10 +240,10 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     }
                     val (total, done) = remember(tick) { db.counts() }
                     val arcN = remember(tick) { db.archived().size }
-                    if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4) {
+                    if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
-                    }
+                    }) { addReq = (if (page == 1) "later" else "now") to (addReq.second + 1) }
                 }
             }
         }
@@ -437,27 +438,36 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
-    Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(52.dp)) {
-        Text(
-            if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else "AI 분석")
-            else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
-            color = pal.sub, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp),
-        )
-        Row(Modifier.align(Alignment.Center)) {
-            repeat(dots) { i ->
-                Box(
-                    Modifier.padding(4.dp).size(10.dp).clip(CircleShape)
-                        .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
-                )
+    Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(66.dp)) {
+        if (page < 2) {
+            Text(
+                "완료 항목\n지우기", color = pal.ink, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 10.dp).clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onClear() }.padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else "AI 분석")
+                else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
+                color = pal.sub, fontSize = 10.sp,
+            )
+            Row {
+                repeat(dots) { i ->
+                    Box(
+                        Modifier.padding(4.dp).size(10.dp).clip(CircleShape)
+                            .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
+                    )
+                }
             }
         }
         if (page < 2) {
             Text(
-                "완료 항목 지우기", color = pal.ink, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                "할 일\n추가", color = pal.bg, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp).clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onClear() }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    .background(pal.ink).clickable { onAdd() }.padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
     }
@@ -521,11 +531,12 @@ private fun NoteInput(
 @Composable
 fun ListPage(
     bucket: String, filter: String, tick: Int, open: SnapshotStateMap<String, Boolean>,
-    onChange: () -> Unit, onDelete: (List<Item>) -> Unit,
+    onChange: () -> Unit, onDelete: (List<Item>) -> Unit, addReq: Int = 0,
 ) {
     val db = Db.get(LocalContext.current)
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
     val listState = rememberLazyListState()
+    LaunchedEffect(addReq) { if (addReq > 0) listState.animateScrollToItem(order.size) }
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
 
@@ -560,7 +571,7 @@ fun ListPage(
                 )
             }
         }
-        item { AddRow(bucket, onChange) }
+        item { AddRow(bucket, onChange, addReq) }
         items(10) { Box(Modifier.fillMaxWidth().height(ROW).ruled()) }
     }
 }
@@ -914,7 +925,7 @@ private fun IconBtn(label: String, on: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddRow(bucket: String, onChange: () -> Unit) {
+private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0) {
     val ctx = LocalContext.current
     val db = Db.get(ctx)
     val pal = LocalPal.current
@@ -926,6 +937,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
     var refocus by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
     val win = androidx.compose.ui.platform.LocalWindowInfo.current
+    LaunchedEffect(addReq) { if (addReq > 0) { kotlinx.coroutines.delay(120); fr.requestFocus() } }
     LaunchedEffect(refocus) { if (refocus > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
     fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent); t = ""; star = false; urgent = false; onChange() } }
     Column(Modifier.fillMaxWidth()) {
