@@ -22,15 +22,7 @@ class LockActivity : ComponentActivity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         setContent {
-            MaterialTheme {
-                Column(Modifier.fillMaxSize()) {
-                    Header("지금 할 일") {
-                        TextButton(onClick = { openApp() }) { Text("앱 열기", color = Color.White) }
-                        TextButton(onClick = { finish() }) { Text("닫기", color = Color.White) }
-                    }
-                    TodoPane("now", "지금 할 일을 메모하세요", Modifier.weight(1f).imePadding())
-                }
-            }
+            MaterialTheme { NotePadApp(lock = true, onOpenApp = { openApp() }, onClose = { finish() }) }
         }
     }
 

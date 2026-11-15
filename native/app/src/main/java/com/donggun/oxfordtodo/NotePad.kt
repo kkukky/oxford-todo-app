@@ -76,6 +76,28 @@ val LocalPal = staticCompositionLocalOf { LightPal }
 
 val Gaegu = FontFamily(Font(R.font.gaegu_regular, FontWeight.Normal), Font(R.font.gaegu_bold, FontWeight.Bold))
 
+/** 어절이 아니라 글자 단위로 줄바꿈: 글자 사이마다 폭 없는 공백(U+200B)을 끼워 넣는다 */
+private fun brk(t: String): String {
+    val sb = StringBuilder()
+    t.forEachIndexed { i, c -> sb.append(c); if (!Character.isHighSurrogate(c)) sb.append('\u200B') }
+    return sb.toString()
+}
+private val CharBreak = androidx.compose.ui.text.input.VisualTransformation { t ->
+    val sb = StringBuilder(); val o2t = IntArray(t.text.length + 1); val t2o = ArrayList<Int>()
+    t.text.forEachIndexed { i, c ->
+        o2t[i] = sb.length; t2o.add(i); sb.append(c)
+        if (!Character.isHighSurrogate(c)) { sb.append('\u200B'); t2o.add(i + 1) }
+    }
+    o2t[t.text.length] = sb.length; t2o.add(t.text.length)
+    androidx.compose.ui.text.input.TransformedText(
+        androidx.compose.ui.text.AnnotatedString(sb.toString()),
+        object : androidx.compose.ui.text.input.OffsetMapping {
+            override fun originalToTransformed(offset: Int) = o2t[offset.coerceIn(0, t.text.length)]
+            override fun transformedToOriginal(offset: Int) = t2o[offset.coerceIn(0, t2o.size - 1)]
+        },
+    )
+}
+private val INPUT_LH = 24.sp
 private val ROW = 50.dp
 private val MARGIN = 50.dp
 private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
@@ -115,7 +137,7 @@ private fun Modifier.ruled(rows: Int = 1): Modifier {
 private class DeleteReq(val ids: List<String>, val title: String, val stepCount: Int)
 
 @Composable
-fun NotePadApp() {
+fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
     val ctx = LocalContext.current
     val db = remember { Db.get(ctx) }
     var dark by remember { mutableStateOf(db.getSetting("dark", "0") == "1") }
@@ -125,7 +147,7 @@ fun NotePadApp() {
     val tick = tickLocal + SyncState.rev.intValue
     val open = remember { mutableStateMapOf<String, Boolean>() }
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
-    val pager = rememberPagerState { 4 }
+    val pager = rememberPagerState { if (lock) 1 else 4 }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
 
@@ -147,7 +169,7 @@ fun NotePadApp() {
 
     CompositionLocalProvider(LocalPal provides pal) {
         Column(Modifier.fillMaxSize().background(pal.bg)) {
-            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { showSettings = !showSettings })
+            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { showSettings = !showSettings }, lock, onOpenApp, onClose)
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
             val bucket = if (page == 1) "later" else "now"
@@ -160,7 +182,7 @@ fun NotePadApp() {
             if (showSettings) {
                 Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) { SettingsPane() }
             } else {
-                HorizontalPager(pager, Modifier.weight(1f)) { p ->
+                HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                     when (p) {
                         0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
                         1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
@@ -170,7 +192,7 @@ fun NotePadApp() {
                 }
                 val (total, done) = remember(tick) { db.counts() }
                 val arcN = remember(tick) { db.archived().size }
-                Footer(page, total, done, arcN) {
+                Footer(page, total, done, arcN, if (lock) 0 else 4) {
                     val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                     askDelete(doneItems, "완료한 ${doneItems.size}개")
                 }
@@ -202,7 +224,7 @@ fun NotePadApp() {
 }
 
 @Composable
-private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit) {
+private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
     val pal = LocalPal.current
     Row(
         Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -213,7 +235,10 @@ private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit) {
             Text("TO DO NOTEPAD", color = pal.barInk.copy(alpha = 0.7f), fontSize = 8.sp, letterSpacing = 0.12.em)
         }
         Spacer(Modifier.weight(1f))
-        Text("⚙", color = pal.barInk, fontSize = 18.sp, modifier = Modifier.clickable { onSettings() }.padding(horizontal = 8.dp, vertical = 8.dp))
+        if (lock) {
+            Text("앱 열기", color = pal.barInk, fontSize = 12.sp, modifier = Modifier.clickable { onOpenApp() }.padding(horizontal = 8.dp, vertical = 8.dp))
+            Text("닫기", color = pal.barInk, fontSize = 12.sp, modifier = Modifier.clickable { onClose() }.padding(horizontal = 8.dp, vertical = 8.dp))
+        } else Text("⚙", color = pal.barInk, fontSize = 18.sp, modifier = Modifier.clickable { onSettings() }.padding(horizontal = 8.dp, vertical = 8.dp))
         Box(Modifier.size(32.dp).clickable { onDark() }, Alignment.Center) {
             Box(Modifier.size(15.dp).clip(CircleShape).background(if (dark) pal.barInk else Color.Transparent).border(1.8.dp, pal.barInk, CircleShape))
         }
@@ -250,7 +275,7 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, onClear: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit) {
     val pal = LocalPal.current
     Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(52.dp)) {
         Text(
@@ -259,7 +284,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, onClear: () 
             color = pal.sub, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp),
         )
         Row(Modifier.align(Alignment.Center)) {
-            repeat(4) { i ->
+            repeat(dots) { i ->
                 Box(
                     Modifier.padding(4.dp).size(10.dp).clip(CircleShape)
                         .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
@@ -290,17 +315,19 @@ private fun NoteInput(
 ) {
     val pal = LocalPal.current
     var focused by remember { mutableStateOf(false) }
-    val lh = with(LocalDensity.current) { ROW.toSp() }
     BasicTextField(
         value = value,
         onValueChange = { v -> if (v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
         modifier = modifier.height(if (focused) ROW * 5 else ROW).onFocusChanged { focused = it.isFocused },
-        textStyle = TextStyle(
-            color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = lh,
-            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
-        ),
+        textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
-        decorationBox = { inner -> Box(Modifier.fillMaxSize()) { if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = lh); inner() } },
+        visualTransformation = CharBreak,
+        decorationBox = { inner ->
+            Box(Modifier.fillMaxSize().padding(top = if (focused) 13.dp else 0.dp), if (focused) Alignment.TopStart else Alignment.CenterStart) {
+                if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
+                inner()
+            }
+        },
     )
 }
 
@@ -398,7 +425,7 @@ private fun ItemBlock(
                 }
             }
             Text(
-                item.title, color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
+                brk(item.title), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
                 fontWeight = if (item.urgent && !item.done) FontWeight.Bold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 onTextLayout = { lines = it.lineCount }, modifier = Modifier.weight(1f).padding(end = 4.dp),
@@ -425,20 +452,17 @@ private fun TitleEditor(item: Item, onDone: () -> Unit) {
     val fr = remember { FocusRequester() }
     var finished by remember { mutableStateOf(false) }
     var hadFocus by remember { mutableStateOf(false) }
-    val lh = with(LocalDensity.current) { ROW.toSp() }
     fun finish() { if (finished) return; finished = true; db.setTitle(item.id, tf.text); onDone() }
     LaunchedEffect(Unit) { fr.requestFocus() }
     BasicTextField(
         value = tf,
         onValueChange = { v -> if (v.text.contains('\n')) finish() else tf = v.copy(text = v.text.take(400)) },
-        modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled(4)
-            .padding(start = MARGIN + 10.dp, end = 10.dp)
+        modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled()
+            .padding(start = MARGIN + 10.dp, end = 10.dp, top = 13.dp)
             .focusRequester(fr).onFocusChanged { if (it.isFocused) hadFocus = true else if (hadFocus) finish() },
-        textStyle = TextStyle(
-            color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = lh,
-            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
-        ),
+        textStyle = TextStyle(color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
+        visualTransformation = CharBreak,
     )
 }
 
