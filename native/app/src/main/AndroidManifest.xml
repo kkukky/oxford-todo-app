@@ -13,7 +13,7 @@
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="옥스포드 투두 N"
+        android:label="옥스포드 투두노트패드"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
