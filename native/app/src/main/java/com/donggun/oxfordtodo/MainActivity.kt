@@ -80,6 +80,15 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         HorizontalDivider()
         StoragePane(db)
         HorizontalDivider()
+        var flagOn by remember { mutableStateOf(db.getSetting("flag_group", "0") == "1") }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("긴급·중요 항목을 먼저 보이기", style = MaterialTheme.typography.titleMedium)
+                Text("끄면 목록 순서(맨 위 추가, 우선순위 가르기 결과)를 그대로 보여요.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(flagOn, { v -> flagOn = v; db.setSetting("flag_group", if (v) "1" else "0"); onChanged() })
+        }
+        HorizontalDivider()
         Text("데이터 편집", style = MaterialTheme.typography.titleMedium)
         Text("지금 할 일 전체를 글로 보면서 한꺼번에 고쳐요.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = { showBulk = true }) { Text("지금 할 일 한꺼번에 편집 (전체 화면)") }

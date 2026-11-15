@@ -131,11 +131,11 @@ private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
 private fun fmt(ts: Long) = TS.format(Date(ts))
 private val LI = mapOf("start" to "●", "memo" to "✎", "step" to "✓", "undo" to "↺", "done" to "✔", "reopen" to "↺", "move" to "⇄")
 
-private object FlagGroup { var on = true }
+private object FlagGroup { var on = false }
 private fun rank(i: Item) = (if (i.done) 4 else 0) + (if (FlagGroup.on) (if (i.urgent) 0 else 2) + (if (i.star) 0 else 1) else 0)
 
 fun visibleItems(db: Db, bucket: String, filter: String): List<Item> {
-    FlagGroup.on = db.getSetting("flag_group", "1") == "1"
+    FlagGroup.on = db.getSetting("flag_group", "0") == "1"
     val base = db.list(bucket).filter {
         when (filter) {
             "left" -> !it.done
