@@ -23,12 +23,22 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -82,6 +92,20 @@ private fun brk(t: String): String {
     t.forEachIndexed { i, c -> sb.append(c); if (!Character.isHighSurrogate(c)) sb.append('\u200B') }
     return sb.toString()
 }
+private val TAG_RE = Regex("#[^\\s#]+")
+private val TAG_COLOR = Color(0xFF1F7A74)
+private fun cleanTag(t: String) = t.trimEnd('.', ',', '!', '?', ';', ':', ')', ']').lowercase()
+private fun tagsOf(s: String): List<String> = TAG_RE.findAll(s).map { cleanTag(it.value) }.filter { it.length > 1 }.toList()
+/** 글자 단위 줄바꿈 + #키워드는 색을 입혀 보여준다 */
+private fun tagged(text: String, tagColor: Color): AnnotatedString = buildAnnotatedString {
+    var last = 0
+    TAG_RE.findAll(text).forEach { m ->
+        if (m.range.first > last) append(brk(text.substring(last, m.range.first)))
+        withStyle(SpanStyle(color = tagColor, fontWeight = FontWeight.Bold)) { append(brk(m.value)) }
+        last = m.range.last + 1
+    }
+    if (last < text.length) append(brk(text.substring(last)))
+}
 private val CharBreak = androidx.compose.ui.text.input.VisualTransformation { t ->
     val sb = StringBuilder(); val o2t = IntArray(t.text.length + 1); val t2o = ArrayList<Int>()
     t.text.forEachIndexed { i, c ->
@@ -98,6 +122,7 @@ private val CharBreak = androidx.compose.ui.text.input.VisualTransformation { t 
     )
 }
 private val INPUT_LH = 24.sp
+@Composable private fun tagColor() = if (LocalPal.current === DarkPal) Color(0xFF6FC2BD) else TAG_COLOR
 private val ROW = 50.dp
 private val MARGIN = 50.dp
 private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
@@ -147,6 +172,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     val tick = tickLocal + SyncState.rev.intValue
     val open = remember { mutableStateMapOf<String, Boolean>() }
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val pager = rememberPagerState { if (lock) 1 else 4 }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
@@ -160,7 +187,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     }
     LaunchedEffect(tickLocal) { if (tickLocal > 0) { kotlinx.coroutines.delay(2500); SyncState.sync(ctx) } }
 
-    BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = showSettings || searching) { if (searching) searching = false else showSettings = false }
 
     fun askDelete(list: List<Item>, title: String) {
         if (list.isEmpty()) return
@@ -169,32 +196,40 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
 
     CompositionLocalProvider(LocalPal provides pal) {
         Column(Modifier.fillMaxSize().background(pal.bg)) {
-            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { showSettings = !showSettings }, lock, onOpenApp, onClose)
+            Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { searching = !searching; showSettings = false }
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
             val bucket = if (page == 1) "later" else "now"
             val foldList = if (listPage) remember(tick, bucket, filter) { visibleItems(db, bucket, filter) } else emptyList()
             val anyOpen = foldList.any { open[it.id] == true }
-            HeadRow(
-                title = if (showSettings) "설정" else titles[page], showFilters = listPage, filter = filter, onFilter = { filter = it },
-                showFold = listPage, anyOpen = anyOpen, onFold = { foldList.forEach { open[it.id] = !anyOpen } },
-            )
-            if (showSettings) {
-                Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) { SettingsPane() }
-            } else {
-                HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
-                    when (p) {
-                        0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
-                        1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
-                        2 -> ArchivePage(tick) { tickLocal++ }
-                        else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
-                    }
+            if (searching && !lock) {
+                SearchPane(tick, Modifier.weight(1f)) { pg, id ->
+                    searching = false
+                    if (pg < 2) open[id] = true
+                    scope.launch { pager.scrollToPage(pg) }
                 }
-                val (total, done) = remember(tick) { db.counts() }
-                val arcN = remember(tick) { db.archived().size }
-                Footer(page, total, done, arcN, if (lock) 0 else 4) {
-                    val doneItems = (db.list("now") + db.list("later")).filter { it.done }
-                    askDelete(doneItems, "완료한 ${doneItems.size}개")
+            } else {
+                HeadRow(
+                    title = if (showSettings) "설정" else titles[page], showFilters = listPage, filter = filter, onFilter = { filter = it },
+                    showFold = listPage, anyOpen = anyOpen, onFold = { foldList.forEach { open[it.id] = !anyOpen } },
+                )
+                if (showSettings) {
+                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) { SettingsPane() }
+                } else {
+                    HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
+                        when (p) {
+                            0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
+                            1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
+                            2 -> ArchivePage(tick) { tickLocal++ }
+                            else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
+                        }
+                    }
+                    val (total, done) = remember(tick) { db.counts() }
+                    val arcN = remember(tick) { db.archived().size }
+                    Footer(page, total, done, arcN, if (lock) 0 else 4) {
+                        val doneItems = (db.list("now") + db.list("later")).filter { it.done }
+                        askDelete(doneItems, "완료한 ${doneItems.size}개")
+                    }
                 }
             }
         }
@@ -224,7 +259,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
 }
 
 @Composable
-private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
+private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}, searchOn: Boolean = false, onSearch: () -> Unit = {}) {
     val pal = LocalPal.current
     Row(
         Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -239,8 +274,89 @@ private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock
             Text("앱 열기", color = pal.barInk, fontSize = 12.sp, modifier = Modifier.clickable { onOpenApp() }.padding(horizontal = 8.dp, vertical = 8.dp))
             Text("닫기", color = pal.barInk, fontSize = 12.sp, modifier = Modifier.clickable { onClose() }.padding(horizontal = 8.dp, vertical = 8.dp))
         } else Text("⚙", color = pal.barInk, fontSize = 18.sp, modifier = Modifier.clickable { onSettings() }.padding(horizontal = 8.dp, vertical = 8.dp))
+        if (!lock) Box(Modifier.size(36.dp).clickable { onSearch() }, Alignment.Center) { SearchIcon(pal.barInk.copy(alpha = if (searchOn) 0.6f else 1f)) }
         Box(Modifier.size(32.dp).clickable { onDark() }, Alignment.Center) {
             Box(Modifier.size(15.dp).clip(CircleShape).background(if (dark) pal.barInk else Color.Transparent).border(1.8.dp, pal.barInk, CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun SearchIcon(color: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        drawCircle(color, radius = w * 0.31f, center = Offset(w * 0.43f, w * 0.43f), style = Stroke(width = 2.dp.toPx()))
+        drawLine(color, Offset(w * 0.66f, w * 0.66f), Offset(w * 0.92f, w * 0.92f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+    }
+}
+
+private class Memo(val id: String, val title: String, val desc: String, val steps: List<String>, val where: String, val page: Int) {
+    val text = (listOf(title, desc) + steps).joinToString(" ")
+}
+
+/** 돋보기 화면: #키워드 버튼 + 검색어로 메모 찾기 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> Unit) {
+    val db = Db.get(LocalContext.current)
+    val pal = LocalPal.current
+    var q by remember { mutableStateOf("") }
+    var tag by remember { mutableStateOf<String?>(null) }
+    val fr = remember { FocusRequester() }
+    val memos = remember(tick) {
+        val a = (db.list("now") + db.list("later")).map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, if (it.bucket == "now") "지금 할 일" else "나중 할 일", if (it.bucket == "now") 0 else 1) }
+        val b = db.archived().map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, "보관함", 2) }
+        a + b
+    }
+    val counts = remember(memos) {
+        val m = LinkedHashMap<String, Int>()
+        memos.forEach { mm -> tagsOf(mm.text).toSet().forEach { t -> m[t] = (m[t] ?: 0) + 1 } }
+        m.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+    }
+    val toks = q.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val hits = if (tag == null && toks.isEmpty()) emptyList() else memos.filter { m ->
+        val tx = m.text.lowercase()
+        (tag == null || tagsOf(tx).contains(tag)) && toks.all { tx.contains(it) }
+    }
+    LaunchedEffect(Unit) { fr.requestFocus() }
+    Column(modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+        Row(
+            Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(50)).border(1.dp, pal.rule, RoundedCornerShape(50)).padding(start = 14.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SearchIcon(pal.sub)
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = q, onValueChange = { q = it },
+                modifier = Modifier.weight(1f).height(42.dp).focusRequester(fr), singleLine = true,
+                textStyle = TextStyle(color = pal.pen, fontSize = 17.sp, fontFamily = Gaegu), cursorBrush = SolidColor(pal.pen),
+                decorationBox = { inner -> Box(Modifier.fillMaxSize(), Alignment.CenterStart) { if (q.isEmpty()) Text("메모 검색 · #키워드", color = pal.sub, fontSize = 17.sp, fontFamily = Gaegu); inner() } },
+            )
+            if (q.isNotEmpty() || tag != null) Text("✕", color = pal.sub, fontSize = 14.sp, modifier = Modifier.clickable { q = ""; tag = null }.padding(10.dp))
+        }
+        FlowRow(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            counts.forEach { (t, n) ->
+                val on = tag == t
+                Text(
+                    "$t  $n", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (on) pal.bg else pal.ink,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) pal.ink else Color.Transparent)
+                        .border(1.dp, pal.rule, RoundedCornerShape(50)).clickable { tag = if (on) null else t }.padding(horizontal = 11.dp, vertical = 6.dp),
+                )
+            }
+        }
+        if (tag == null && toks.isEmpty()) {
+            Text(if (counts.isEmpty()) "메모에 #키워드를 적어 두면 여기에 모여요" else "키워드를 누르거나 검색어를 적어 보세요", color = pal.sub, fontSize = 14.sp, modifier = Modifier.padding(4.dp))
+        } else if (hits.isEmpty()) {
+            Text("찾은 메모가 없어요", color = pal.sub, fontSize = 14.sp, modifier = Modifier.padding(4.dp))
+        } else LazyColumn(Modifier.weight(1f)) {
+            items(hits, key = { it.id }) { m ->
+                Column(Modifier.fillMaxWidth().clickable { onPick(m.page, m.id) }.drawBehind {
+                    drawLine(pal.rule, Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), 1f)
+                }.padding(vertical = 10.dp, horizontal = 4.dp)) {
+                    Text(tagged(m.title, tagColor()), color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = 24.sp)
+                    Text(m.where + (if (m.desc.isNotEmpty()) " · ${m.desc}" else "") + (if (m.steps.isNotEmpty()) " · 절차 ${m.steps.size}" else ""), color = pal.sub, fontSize = 11.sp)
+                }
+            }
         }
     }
 }
@@ -252,7 +368,7 @@ private fun HeadRow(
 ) {
     val pal = LocalPal.current
     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = pal.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold, fontFamily = Gaegu, maxLines = 1)
+        Text(title, color = pal.ink, fontSize = 28.5.sp, fontWeight = FontWeight.Bold, fontFamily = Gaegu, maxLines = 1)
         if (showFilters) {
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("all" to "전체", "left" to "남은 일", "urgent" to "긴급", "star" to "중요", "done" to "완료").forEach { (k, l) ->
@@ -425,7 +541,7 @@ private fun ItemBlock(
                 }
             }
             Text(
-                brk(item.title), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
+                tagged(item.title, if (item.done) pal.sub else tagColor()), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
                 fontWeight = if (item.urgent && !item.done) FontWeight.Bold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 onTextLayout = { lines = it.lineCount }, modifier = Modifier.weight(1f).padding(end = 4.dp),
@@ -493,6 +609,10 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
     val focus = LocalFocusManager.current
     fun refresh() { v++; onChange() }
     val nextId = steps.firstOrNull { !it.done }?.id
+    val stepList = remember(item.id, v, steps) { mutableStateListOf<Step>().apply { addAll(steps) } }
+    var sDrag by remember(item.id) { mutableStateOf<String?>(null) }
+    var sDy by remember(item.id) { mutableFloatStateOf(0f) }
+    val rowPx = with(LocalDensity.current) { ROW.toPx() }
 
     Column(Modifier.fillMaxWidth().background(pal.panel)) {
         // 설명 + ☆ ! ↓
@@ -522,28 +642,48 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
                 Text((LI[l.type] ?: "·") + " " + l.text, color = pal.ink, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        // 절차
-        steps.forEachIndexed { i, s ->
-            Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width(MARGIN), Alignment.Center) {
-                    Checkbox(
-                        checked = s.done, onCheckedChange = { db.toggleStep(s.id, item.id, it); refresh() },
-                        colors = CheckboxDefaults.colors(checkedColor = pal.margin, uncheckedColor = pal.pen, checkmarkColor = pal.bg),
+        // 절차 (길게 눌러 순서 변경)
+        stepList.forEachIndexed { i, s ->
+            key(s.id) {
+                Row(
+                    Modifier.fillMaxWidth().height(ROW)
+                        .then(if (sDrag == s.id) Modifier.zIndex(1f).graphicsLayer { translationY = sDy }.background(pal.panel) else Modifier)
+                        .ruled()
+                        .pointerInput(s.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { sDrag = s.id; sDy = 0f },
+                                onDrag = { c, a ->
+                                    c.consume(); sDy += a.y
+                                    val idx = stepList.indexOfFirst { it.id == s.id }
+                                    if (sDy > rowPx / 2 && idx >= 0 && idx < stepList.lastIndex) { stepList.add(idx + 1, stepList.removeAt(idx)); sDy -= rowPx }
+                                    else if (sDy < -rowPx / 2 && idx > 0) { stepList.add(idx - 1, stepList.removeAt(idx)); sDy += rowPx }
+                                },
+                                onDragEnd = { db.reorderSteps(stepList.map { it.id }); sDrag = null; sDy = 0f; refresh() },
+                                onDragCancel = { sDrag = null; sDy = 0f },
+                            )
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.width(MARGIN), Alignment.Center) {
+                        Checkbox(
+                            checked = s.done, onCheckedChange = { db.toggleStep(s.id, item.id, it); refresh() },
+                            colors = CheckboxDefaults.colors(checkedColor = pal.margin, uncheckedColor = pal.pen, checkmarkColor = pal.bg),
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text("${i + 1}", color = if (s.id == nextId) pal.accent else pal.sub, fontSize = 11.sp, modifier = Modifier.width(16.dp))
+                    Text(
+                        tagged(s.title, tagColor()), color = if (s.done) pal.sub else pal.pen, fontSize = 16.sp, fontFamily = Gaegu,
+                        fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (s.done) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (s.id == nextId) Text(
+                        "지금 이 단계", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFFF7E3A8)).padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text("✕", color = pal.sub, fontSize = 14.sp, modifier = Modifier.clickable { db.deleteStep(s.id); refresh() }.padding(12.dp))
                 }
-                Spacer(Modifier.width(10.dp))
-                Text("${i + 1}", color = if (s.id == nextId) pal.accent else pal.sub, fontSize = 11.sp, modifier = Modifier.width(16.dp))
-                Text(
-                    s.title, color = if (s.done) pal.sub else pal.pen, fontSize = 16.sp, fontFamily = Gaegu,
-                    fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (s.done) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f, fill = false),
-                )
-                if (s.id == nextId) Text(
-                    "지금 이 단계", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFFF7E3A8)).padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                Text("✕", color = pal.sub, fontSize = 14.sp, modifier = Modifier.clickable { db.deleteStep(s.id); refresh() }.padding(12.dp))
             }
         }
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {

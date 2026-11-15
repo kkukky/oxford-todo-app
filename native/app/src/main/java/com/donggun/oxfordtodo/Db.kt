@@ -244,6 +244,19 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
+    /** 절차 순서 저장 */
+    fun reorderSteps(ids: List<String>) {
+        val db = writableDatabase; val ts = now()
+        db.beginTransaction()
+        try {
+            ids.forEachIndexed { i, id ->
+                val v = ContentValues().apply { put("position", i); put("updated_at", ts) }
+                db.update("steps", v, "id=?", arrayOf(id))
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
     fun getSetting(key: String, def: String): String =
         readableDatabase.rawQuery("SELECT value FROM settings WHERE key=?", arrayOf(key)).use {
             if (it.moveToFirst()) it.getString(0) else def
