@@ -294,6 +294,39 @@ private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock
     }
 }
 
+/** 글꼴에 화살표 글자가 없어도 보이도록 직접 그린 겹꺽쇠 (위: 접기, 아래: 펼치기) */
+@Composable
+private fun ChevronsIcon(up: Boolean, color: Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val u = size.width / 24f
+        val st = Stroke(width = 2f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        fun chev(y: Float) {
+            val p = androidx.compose.ui.graphics.Path().apply {
+                if (up) { moveTo(6f * u, (y + 6f) * u); lineTo(12f * u, y * u); lineTo(18f * u, (y + 6f) * u) }
+                else { moveTo(6f * u, y * u); lineTo(12f * u, (y + 6f) * u); lineTo(18f * u, y * u) }
+            }
+            drawPath(p, color, style = st)
+        }
+        if (up) { chev(5f); chev(12f) } else { chev(5f); chev(12f) }
+    }
+}
+
+/** 오른쪽(→, 나중 할 일로) / 왼쪽(←, 지금 할 일로) 화살표 */
+@Composable
+private fun ArrowIcon(right: Boolean, color: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val u = size.width / 24f
+        val st = Stroke(width = 2.4f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        val d = if (right) 1f else -1f
+        val cx = 12f
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo((cx - 8f * d) * u, 12f * u); lineTo((cx + 8f * d) * u, 12f * u)
+            moveTo((cx + 2f * d) * u, 5f * u); lineTo((cx + 8f * d) * u, 12f * u); lineTo((cx + 2f * d) * u, 19f * u)
+        }
+        drawPath(p, color, style = st)
+    }
+}
+
 @Composable
 private fun SearchIcon(color: Color) {
     Canvas(Modifier.size(22.dp)) {
@@ -398,7 +431,7 @@ private fun HeadRow(
             Box(
                 Modifier.size(34.dp).clip(CircleShape).border(1.2.dp, pal.rule, CircleShape).clickable { onFold() },
                 Alignment.Center,
-            ) { Text(if (anyOpen) "▴▴" else "▾▾", color = pal.ink, fontSize = 11.sp) }
+            ) { ChevronsIcon(up = anyOpen, color = pal.ink) }
         }
     }
 }
@@ -642,8 +675,8 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
             ) {
                 IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
                 IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
-                IconBtn(if (bucket == "now") "↓" else "↑", false) {
-                    finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange()
+                Box(Modifier.size(40.dp).clickable { finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange() }, Alignment.Center) {
+                    ArrowIcon(right = bucket == "now", color = pal.sub)
                 }
                 Box(Modifier.size(44.dp).clickable { finish() }, Alignment.Center) {
                     Text("✓", color = pal.pen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
