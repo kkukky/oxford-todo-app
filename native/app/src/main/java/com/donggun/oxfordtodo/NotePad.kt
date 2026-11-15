@@ -225,7 +225,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     showFold = listPage, anyOpen = anyOpen, onFold = { foldList.forEach { open[it.id] = !anyOpen } },
                 )
                 if (showSettings) {
-                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) { SettingsPane() }
+                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navigationBarsPadding()) { SettingsPane() }
                 } else {
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
@@ -332,7 +332,7 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
         (tag == null || tagsOf(tx).contains(tag)) && toks.all { tx.contains(it) }
     }
     LaunchedEffect(Unit) { fr.requestFocus() }
-    Column(modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+    Column(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp)) {
         Row(
             Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(50)).border(1.dp, pal.rule, RoundedCornerShape(50)).padding(start = 14.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -620,6 +620,8 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
         onDismissRequest = { close() },
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        val dd = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
         Column(Modifier.fillMaxSize().background(pal.bg).imePadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp + 0.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clickable { close() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
@@ -647,6 +649,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
                     Text("✓", color = pal.pen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 }
             }
+        }
         }
     }
     if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
