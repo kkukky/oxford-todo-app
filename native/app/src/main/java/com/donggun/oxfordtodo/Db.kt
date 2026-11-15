@@ -77,13 +77,13 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
-    fun add(title: String, bucket: String = "now") {
+    fun add(title: String, bucket: String = "now", star: Boolean = false, urgent: Boolean = false) {
         val t = title.trim()
         if (t.isEmpty()) return
         val id = UUID.randomUUID().toString()
         val ts = now()
         val v = ContentValues().apply {
-            put("id", id); put("title", t); put("bucket", bucket)
+            put("id", id); put("title", t.take(400)); put("bucket", bucket); put("star", if (star) 1 else 0); put("urgent", if (urgent) 1 else 0)
             put("created_at", ts); put("updated_at", ts); put("sort_order", ts.toDouble())
         }
         writableDatabase.insert("items", null, v)
@@ -172,7 +172,32 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
-    /** 길게 눌러 옮긴 뒤의 순서(같은 목록의 id 순서)를 저장 */
+    /** 화면에 보이는 항목들끼리만 자리를 바꾼다(숨겨진 항목의 순서는 그대로) */
+    fun reorderWithin(ids: List<String>) {
+        val db = writableDatabase; val ts = now()
+        db.beginTransaction()
+        try {
+            val slots = ArrayList<Double>()
+            ids.forEach { id ->
+                db.rawQuery("SELECT sort_order FROM items WHERE id=?", arrayOf(id)).use { if (it.moveToFirst()) slots.add(it.getDouble(0)) }
+            }
+            if (slots.size == ids.size) {
+                slots.sort()
+                ids.forEachIndexed { i, id ->
+                    val v = ContentValues().apply { put("sort_order", slots[i]); put("updated_at", ts) }
+                    db.update("items", v, "id=?", arrayOf(id))
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    /** (전체 개수, 완료 개수) — 보관·삭제 제외 */
+    fun counts(): Pair<Int, Int> =
+        readableDatabase.rawQuery("SELECT COUNT(*), COALESCE(SUM(done),0) FROM items WHERE deleted_at IS NULL AND archived_at IS NULL", null)
+            .use { if (it.moveToFirst()) it.getInt(0) to it.getInt(1) else 0 to 0 }
+
+    /** (옛 방식) 길게 눌러 옮긴 뒤의 순서(같은 목록의 id 순서)를 저장 */
     fun reorder(ids: List<String>) {
         val db = writableDatabase; val ts = now()
         db.beginTransaction()
