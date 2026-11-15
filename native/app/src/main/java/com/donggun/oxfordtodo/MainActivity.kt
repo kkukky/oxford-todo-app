@@ -30,30 +30,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { MaterialTheme { AppRoot() } }
-    }
-}
-
-@Composable
-fun AppRoot() {
-    val titles = listOf("지금 할 일", "나중 할 일", "설정")
-    val pager = rememberPagerState { titles.size }
-    val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize()) {
-        Header(titles[pager.currentPage]) {
-            titles.forEachIndexed { i, t ->
-                TextButton(onClick = { scope.launch { pager.animateScrollToPage(i) } }) {
-                    Text(t.take(2), color = if (pager.currentPage == i) Color.White else Color(0xFF9FB3CC))
-                }
-            }
-        }
-        HorizontalPager(pager, Modifier.weight(1f)) { page ->
-            when (page) {
-                0 -> TodoPane("now", "지금 할 일 추가", Modifier.imePadding())
-                1 -> TodoPane("later", "나중 할 일 추가", Modifier.imePadding())
-                else -> SettingsPane()
-            }
-        }
+        setContent { MaterialTheme { NotePadApp() } }
     }
 }
 
