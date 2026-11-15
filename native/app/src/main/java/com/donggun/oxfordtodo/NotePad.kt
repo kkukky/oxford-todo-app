@@ -225,7 +225,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     showFold = listPage, anyOpen = anyOpen, onFold = { foldList.forEach { open[it.id] = !anyOpen } },
                 )
                 if (showSettings) {
-                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navigationBarsPadding()) { SettingsPane() }
+                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navigationBarsPadding()) { SettingsPane { tickLocal++ } }
                 } else {
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->

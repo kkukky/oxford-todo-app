@@ -40,12 +40,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SettingsPane() {
+fun SettingsPane(onChanged: () -> Unit = {}) {
     val ctx = LocalContext.current
     val db = remember { Db.get(ctx) }
     var on by remember { mutableStateOf(db.getSetting("lock_on", "0") == "1") }
     var overlay by remember { mutableStateOf(Settings.canDrawOverlays(ctx)) }
     val notif = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var showBulk by remember { mutableStateOf(false) }
 
     // 설정 화면에 다녀온 뒤 권한 상태를 다시 읽는다
     val owner = LocalLifecycleOwner.current
@@ -79,10 +80,15 @@ fun SettingsPane() {
         HorizontalDivider()
         StoragePane(db)
         HorizontalDivider()
+        Text("데이터 편집", style = MaterialTheme.typography.titleMedium)
+        Text("지금 할 일 전체를 글로 보면서 한꺼번에 고쳐요.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { showBulk = true }) { Text("지금 할 일 한꺼번에 편집 (전체 화면)") }
+        HorizontalDivider()
         FontPane()
         HorizontalDivider()
         OutlinedButton(onClick = { ctx.startActivity(Intent(ctx, LockActivity::class.java)) }) { Text("잠금화면 메모 화면 미리보기") }
     }
+    if (showBulk) BulkEditDialog(db, { showBulk = false }) { showBulk = false; onChanged() }
 }
 
 

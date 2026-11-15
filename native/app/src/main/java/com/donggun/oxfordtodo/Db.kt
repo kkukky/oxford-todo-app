@@ -77,9 +77,9 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
-    fun add(title: String, bucket: String = "now", star: Boolean = false, urgent: Boolean = false) {
+    fun add(title: String, bucket: String = "now", star: Boolean = false, urgent: Boolean = false): String {
         val t = title.trim()
-        if (t.isEmpty()) return
+        if (t.isEmpty()) return ""
         val id = UUID.randomUUID().toString()
         val ts = now()
         val v = ContentValues().apply {
@@ -88,6 +88,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         }
         writableDatabase.insert("items", null, v)
         log(id, "start", "등록")
+        return id
     }
 
     fun toggleDone(id: String, done: Boolean) {
