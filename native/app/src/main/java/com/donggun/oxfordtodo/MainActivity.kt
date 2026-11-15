@@ -153,6 +153,24 @@ fun FontPane() {
     val ctx = LocalContext.current
     var opts by remember { mutableStateOf<List<FontPref.Opt>?>(null) }
     LaunchedEffect(Unit) { opts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { FontPref.options() } }
+    Text("글꼴 크기", style = MaterialTheme.typography.titleMedium)
+    Text("메모 목록의 글씨와 줄 간격이 함께 바뀌어요. 보통이 기본 크기예요.", style = MaterialTheme.typography.bodySmall)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FontPref.LEVEL_NAMES.forEachIndexed { i, name ->
+            val on = FontPref.sizeIdx == i
+            Column(
+                Modifier.weight(1f)
+                    .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                    .clickable { FontPref.setSize(ctx, i) }.padding(vertical = 8.dp),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+            ) {
+                Text("가", fontFamily = FontPref.family, fontSize = (16 * FontPref.LEVELS[i]).sp)
+                Text(name, fontSize = 10.sp)
+            }
+        }
+    }
+    Text("가나다라 오늘 할 일 Abc 123", fontFamily = FontPref.family, fontSize = (19 * FontPref.scale).sp)
+    HorizontalDivider()
     Text("글꼴", style = MaterialTheme.typography.titleMedium)
     Text("메모에 쓸 글꼴을 골라요. 이 폰에 들어 있는 글꼴만 나와요.", style = MaterialTheme.typography.bodySmall)
     val list = opts

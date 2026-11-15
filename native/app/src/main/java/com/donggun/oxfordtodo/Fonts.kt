@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.Font
@@ -20,6 +21,14 @@ object FontPref {
         private set
     var id: String by mutableStateOf("gaegu")
         private set
+    /** 글씨 크기 5단계: 아주 작게 · 작게 · 보통(기본) · 크게 · 아주 크게 */
+    val LEVELS = floatArrayOf(0.8f, 0.9f, 1f, 1.15f, 1.3f)
+    val LEVEL_NAMES = listOf("아주 작게", "작게", "보통", "크게", "아주 크게")
+    var sizeIdx by mutableIntStateOf(2)
+        private set
+    val scale: Float get() = LEVELS[sizeIdx]
+    fun setSize(ctx: Context, i: Int) { sizeIdx = i.coerceIn(0, 4); Db.get(ctx).setSetting("font_size", sizeIdx.toString()) }
+
     private var loaded = false
     private var cache: List<Opt>? = null
 
@@ -46,6 +55,7 @@ object FontPref {
         loaded = true
         id = Db.get(ctx).getSetting("font", "gaegu")
         family = resolve(id)
+        sizeIdx = (Db.get(ctx).getSetting("font_size", "2").toIntOrNull() ?: 2).coerceIn(0, 4)
     }
 
     fun set(ctx: Context, o: Opt) {

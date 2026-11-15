@@ -59,6 +59,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -123,7 +125,7 @@ private val CharBreak = androidx.compose.ui.text.input.VisualTransformation { t 
 }
 private val INPUT_LH = 24.sp
 @Composable private fun tagColor() = if (LocalPal.current === DarkPal) Color(0xFF6FC2BD) else TAG_COLOR
-private val ROW = 50.dp
+private val ROW: Dp get() = 50.dp * FontPref.scale
 private val MARGIN = 50.dp
 private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
 private fun fmt(ts: Long) = TS.format(Date(ts))
@@ -161,6 +163,7 @@ private fun Modifier.ruled(rows: Int = 1): Modifier {
 
 private class DeleteReq(val ids: List<String>, val title: String, val stepCount: Int)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
     val ctx = LocalContext.current
@@ -177,6 +180,9 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     val pager = rememberPagerState { if (lock) 1 else 4 }
     val fm = LocalFocusManager.current
     remember { FontPref.load(ctx) }
+    val baseD = LocalDensity.current
+    val scaledD = Density(baseD.density, baseD.fontScale * FontPref.scale)
+    val imeOn = WindowInsets.isImeVisible
     LaunchedEffect(pager.currentPage) { fm.clearFocus() }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
@@ -198,7 +204,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     }
 
     CompositionLocalProvider(LocalPal provides pal) {
-        Column(Modifier.fillMaxSize().background(pal.bg)) {
+        Column(Modifier.fillMaxSize().background(pal.bg).imePadding()) {
             Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { fm.clearFocus(); showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { fm.clearFocus(); searching = !searching; showSettings = false }
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
@@ -206,10 +212,12 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
             val foldList = if (listPage) remember(tick, bucket, filter) { visibleItems(db, bucket, filter) } else emptyList()
             val anyOpen = foldList.any { open[it.id] == true }
             if (searching && !lock) {
-                SearchPane(tick, Modifier.weight(1f)) { pg, id ->
-                    searching = false
-                    if (pg < 2) open[id] = true
-                    scope.launch { pager.scrollToPage(pg) }
+                CompositionLocalProvider(LocalDensity provides scaledD) {
+                    SearchPane(tick, Modifier.weight(1f)) { pg, id ->
+                        searching = false
+                        if (pg < 2) open[id] = true
+                        scope.launch { pager.scrollToPage(pg) }
+                    }
                 }
             } else {
                 HeadRow(
@@ -219,17 +227,19 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                 if (showSettings) {
                     Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) { SettingsPane() }
                 } else {
-                    HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
-                        when (p) {
-                            0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
-                            1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
-                            2 -> ArchivePage(tick) { tickLocal++ }
-                            else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
+                    CompositionLocalProvider(LocalDensity provides scaledD) {
+                        HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
+                            when (p) {
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }) { askDelete(it, it[0].title) }
+                                2 -> ArchivePage(tick) { tickLocal++ }
+                                else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
+                            }
                         }
                     }
                     val (total, done) = remember(tick) { db.counts() }
                     val arcN = remember(tick) { db.archived().size }
-                    Footer(page, total, done, arcN, if (lock) 0 else 4) {
+                    if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4) {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
                     }
@@ -456,7 +466,7 @@ private fun NoteInput(
     var lines by remember { mutableIntStateOf(1) }
     // fit: 입력을 마친 뒤에도 여러 줄을 노트줄 배수 높이로 전부 보여준다
     val multi = fit && !focused && lines > 1
-    val fitRows = kotlin.math.ceil((lines * 24 + (ROW.value - 24)) / ROW.value).toInt().coerceAtLeast(1)
+    val fitRows = kotlin.math.ceil((lines * 24 + 26) / 50.0).toInt().coerceAtLeast(1)
     BasicTextField(
         value = value,
         onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
@@ -467,7 +477,7 @@ private fun NoteInput(
         visualTransformation = CharBreak,
         onTextLayout = { lines = it.lineCount },
         decorationBox = { inner ->
-            Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
+            Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp * FontPref.scale else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
                 if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
                 inner()
             }
@@ -505,7 +515,7 @@ fun ListPage(
         dragId = null; dragDy = 0f; onChange()
     }
 
-    LazyColumn(Modifier.fillMaxSize().imePadding(), state = listState) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState) {
         if (order.isEmpty()) item { Box(Modifier.fillMaxWidth().height(ROW).ruled(), Alignment.CenterStart) { Text(if (filter == "all" || filter == "left") "비어 있어요" else "해당하는 일이 없어요", color = LocalPal.current.sub, fontSize = 13.sp, modifier = Modifier.padding(start = MARGIN + 12.dp)) } }
         items(order, key = { it.id }) { r ->
             val dragging = dragId == r.id
