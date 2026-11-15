@@ -776,19 +776,19 @@ private fun ArchivePage(tick: Int, onChange: () -> Unit) {
     }
 }
 
-/** 동기화 상태(화면 갱신용). 로그인되어 있을 때만 서버와 주고받는다. */
+/** 저장/동기화 상태(화면 갱신용). 폰 폴더나 구글 드라이브가 켜져 있을 때만 동작한다. */
 object SyncState {
     val rev = mutableIntStateOf(0)
     val status = mutableStateOf("")
     private val busy = java.util.concurrent.atomic.AtomicBoolean(false)
     fun sync(ctx: android.content.Context, force: Boolean = false) {
         val db = Db.get(ctx)
-        if (!Sync.loggedIn(db) || !busy.compareAndSet(false, true)) return
+        if (!Sync.enabled(db) || !busy.compareAndSet(false, true)) return
         status.value = "동기화 중…"
         Thread {
             try {
                 val (up, down) = Sync.run(ctx)
-                status.value = "동기화 완료 (올림 $up · 받음 $down)"
+                status.value = "저장 완료 (갱신 ${up}곳 · 가져온 변경 ${down}건)"
                 if (down > 0 || force) rev.intValue++
             } catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName) }
             finally { busy.set(false) }

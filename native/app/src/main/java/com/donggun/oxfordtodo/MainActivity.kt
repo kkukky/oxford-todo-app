@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.launch
+import com.google.android.gms.auth.api.identity.Identity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,7 +73,7 @@ fun SettingsPane() {
             ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
         }) { Text("알림 설정 열기 (전체 화면 알림 허용)") }
         HorizontalDivider()
-        AccountPane(db)
+        StoragePane(db)
         HorizontalDivider()
         OutlinedButton(onClick = { ctx.startActivity(Intent(ctx, LockActivity::class.java)) }) { Text("잠금화면 메모 화면 미리보기") }
     }
@@ -80,41 +81,62 @@ fun SettingsPane() {
 
 
 @Composable
-fun AccountPane(db: Db) {
+fun StoragePane(db: Db) {
     val ctx = LocalContext.current
-    var email by remember { mutableStateOf("") }
-    var pw by remember { mutableStateOf("") }
-    var user by remember { mutableStateOf(Sync.email(db)) }
+    var fsLabel by remember { mutableStateOf(Store.label(ctx)) }
+    var gdOn by remember { mutableStateOf(Sync.driveOn(db)) }
+    var gdMail by remember { mutableStateOf(Sync.email(db)) }
     var msg by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
     val st = SyncState.status.value
-    fun run(block: () -> String) {
-        busy = true; msg = ""
-        Thread {
-            msg = try { block() } catch (e: Exception) { e.message ?: "오류" }
-            user = Sync.email(db); busy = false
-            if (Sync.loggedIn(db)) SyncState.sync(ctx, true)
-        }.start()
+
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) { Store.setTree(ctx, uri); fsLabel = Store.label(ctx); msg = ""; SyncState.sync(ctx, true) }
     }
-    Text("계정 · 동기화", style = MaterialTheme.typography.titleMedium)
-    if (Sync.loggedIn(db)) {
-        Text("로그인됨: $user")
+    fun done(res: com.google.android.gms.auth.api.identity.AuthorizationResult?) {
+        db.setSetting("gd_on", "1"); gdOn = true
+        res?.toGoogleSignInAccount()?.email?.let { db.setSetting("gd_email", it); gdMail = it }
+        msg = ""; SyncState.sync(ctx, true)
+    }
+    val auth = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        try { done(Identity.getAuthorizationClient(ctx).getAuthorizationResultFromIntent(r.data)) }
+        catch (e: Exception) { msg = "연결하지 못했어요: " + (e.message ?: "취소됨") }
+    }
+    fun connect() {
+        Identity.getAuthorizationClient(ctx).authorize(Sync.authRequest())
+            .addOnSuccessListener { res ->
+                if (res.hasResolution()) auth.launch(androidx.activity.result.IntentSenderRequest.Builder(res.pendingIntent!!.intentSender).build())
+                else done(res)
+            }
+            .addOnFailureListener { msg = "연결 실패: " + (it.message ?: it.javaClass.simpleName) }
+    }
+
+    Text("데이터 저장 · 동기화", style = MaterialTheme.typography.titleMedium)
+    Text("메모는 이 폰의 폴더와 구글 드라이브의 같은 이름 폴더(OXFORDToDoNotepad)에 파일로 저장돼요. 두 곳 중 나중에 고친 쪽이 이깁니다.", style = MaterialTheme.typography.bodySmall)
+
+    Text("① 폰 폴더", style = MaterialTheme.typography.titleSmall)
+    if (fsLabel.isNotEmpty()) {
+        Text("사용 중: $fsLabel")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = { pick.launch(Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments")) }) { Text("폴더 바꾸기") }
+            OutlinedButton(onClick = { Store.clear(ctx); fsLabel = "" }) { Text("사용 안 함") }
+        }
+    } else {
+        Text("'Documents' 폴더를 고른 뒤 '이 폴더 사용'을 누르면 그 안에 OXFORDToDoNotepad 폴더가 만들어져요.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { pick.launch(Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments")) }) { Text("폰 폴더 선택") }
+    }
+
+    Text("② 구글 드라이브", style = MaterialTheme.typography.titleSmall)
+    if (gdOn) {
+        Text("연결됨" + if (gdMail.isNotEmpty()) ": $gdMail" else "")
+        OutlinedButton(onClick = { db.setSetting("gd_on", "0"); gdOn = false }) { Text("연결 끊기") }
+    } else {
+        Text("내 드라이브에 OXFORDToDoNotepad 폴더를 만들고 이 앱이 만든 파일만 읽고 써요.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { connect() }) { Text("구글 드라이브 연결") }
+    }
+
+    if (fsLabel.isNotEmpty() || gdOn) {
         if (st.isNotEmpty()) Text(st, style = MaterialTheme.typography.bodySmall)
         Button(onClick = { SyncState.sync(ctx, true) }) { Text("지금 동기화") }
-        OutlinedButton(onClick = { Sync.signOut(db); user = ""; msg = "로그아웃했어요" }) { Text("로그아웃") }
-    } else {
-        Text("로그인하면 이 폰의 할 일이 서버에 저장되고 다른 기기와 같아져요.", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(email, { email = it }, label = { Text("이메일") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(pw, { pw = it }, label = { Text("비밀번호 (6자 이상)") }, singleLine = true,
-            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(enabled = !busy && email.isNotBlank() && pw.length >= 6, onClick = {
-                run { Sync.signIn(db, email.trim(), pw); "로그인했어요" }
-            }) { Text("로그인") }
-            OutlinedButton(enabled = !busy && email.isNotBlank() && pw.length >= 6, onClick = {
-                run { if (Sync.signUp(db, email.trim(), pw)) "가입했어요. 메일의 확인 링크를 누른 뒤 로그인하세요" else "가입하고 로그인했어요" }
-            }) { Text("새로 가입") }
-        }
     }
     if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.bodySmall)
 }
