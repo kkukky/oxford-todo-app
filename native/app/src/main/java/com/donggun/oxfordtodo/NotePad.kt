@@ -394,7 +394,7 @@ private fun ItemBlock(
 
     Column(Modifier.fillMaxWidth().then(if (dragging) Modifier.background(pal.bg) else Modifier)) {
         if (editing) {
-            TitleEditor(item, onDone = { editing = false; onChange() })
+            TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
         } else Row(
             Modifier.fillMaxWidth().height(ROW * rows).ruled().clickable(onClick = onToggle)
                 .pointerInput(item.id) {
@@ -444,7 +444,7 @@ private fun ItemBlock(
 
 /** ⋯ 를 누르면 열리는 제목 편집칸: 4줄 높이, 400자, 커서는 맨 뒤(스페이스 한 칸 뒤) */
 @Composable
-private fun TitleEditor(item: Item, onDone: () -> Unit) {
+private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone: () -> Unit) {
     val db = Db.get(LocalContext.current)
     val pal = LocalPal.current
     val start = item.title + " "
@@ -454,16 +454,30 @@ private fun TitleEditor(item: Item, onDone: () -> Unit) {
     var hadFocus by remember { mutableStateOf(false) }
     fun finish() { if (finished) return; finished = true; db.setTitle(item.id, tf.text); onDone() }
     LaunchedEffect(Unit) { fr.requestFocus() }
-    BasicTextField(
-        value = tf,
-        onValueChange = { v -> if (v.text.contains('\n')) finish() else tf = v.copy(text = v.text.take(400)) },
-        modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled()
-            .padding(start = MARGIN + 10.dp, end = 10.dp, top = 13.dp)
-            .focusRequester(fr).onFocusChanged { if (it.isFocused) hadFocus = true else if (hadFocus) finish() },
-        textStyle = TextStyle(color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
-        cursorBrush = SolidColor(pal.pen),
-        visualTransformation = CharBreak,
-    )
+    Column(Modifier.fillMaxWidth()) {
+        BasicTextField(
+            value = tf,
+            onValueChange = { v -> if (v.text.contains('\n')) finish() else tf = v.copy(text = v.text.take(400)) },
+            modifier = Modifier.fillMaxWidth().height(ROW * 4).background(pal.panel).ruled()
+                .padding(start = MARGIN + 10.dp, end = 10.dp, top = 13.dp)
+                .focusRequester(fr).onFocusChanged { if (it.isFocused) hadFocus = true else if (hadFocus) finish() },
+            textStyle = TextStyle(color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
+            cursorBrush = SolidColor(pal.pen),
+            visualTransformation = CharBreak,
+        )
+        // 아래 오른쪽: 중요 · 긴급 · 옮기기 · 마침
+        Row(Modifier.fillMaxWidth().height(ROW).background(pal.panel).ruled(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
+            IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
+            IconBtn(if (bucket == "now") "↓" else "↑", false) {
+                finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange()
+            }
+            Box(Modifier.size(40.dp).clickable { finish() }, Alignment.Center) {
+                Text("✓", color = pal.pen, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(6.dp))
+        }
+    }
 }
 
 @Composable
@@ -485,10 +499,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("설명", color = pal.sub, fontSize = 10.sp) }
             Spacer(Modifier.width(8.dp))
-            NoteInput(desc, { desc = it; db.setDesc(item.id, it) }, "설명 적기", 120, { focus.clearFocus() }, Modifier.weight(1f), 17f)
-            IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
-            IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
-            IconBtn(if (bucket == "now") "↓" else "↑", false) { db.move(item.id, if (bucket == "now") "later" else "now"); onChange() }
+            NoteInput(desc, { desc = it; db.setDesc(item.id, it) }, "설명 적기", 120, { focus.clearFocus() }, Modifier.weight(1f).padding(end = 10.dp), 17f)
         }
         // 로그 (자동 기록, 읽기 전용)
         Row(Modifier.fillMaxWidth().height(ROW).ruled().clickable { logOpen = !logOpen }, verticalAlignment = Alignment.CenterVertically) {
