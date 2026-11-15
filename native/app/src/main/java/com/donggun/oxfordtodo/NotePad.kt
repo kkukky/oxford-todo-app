@@ -311,14 +311,14 @@ private fun Placeholder(msg: String) {
 @Composable
 private fun NoteInput(
     value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
-    modifier: Modifier = Modifier, fontSize: Float = 17f,
+    modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {},
 ) {
     val pal = LocalPal.current
     var focused by remember { mutableStateOf(false) }
     BasicTextField(
         value = value,
         onValueChange = { v -> if (v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
-        modifier = modifier.height(if (focused) ROW * 5 else ROW).onFocusChanged { focused = it.isFocused },
+        modifier = modifier.height(if (focused) ROW * 5 else ROW).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
         visualTransformation = CharBreak,
@@ -573,13 +573,28 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
     var t by remember { mutableStateOf("") }
     var star by remember { mutableStateOf(false) }
     var urgent by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent); t = ""; star = false; urgent = false; onChange() } }
-    Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.width(10.dp))
-        NoteInput(t, { t = it }, if (bucket == "now") "지금 할 일 적고 Enter" else "나중에 할 일 적고 Enter", 80, { submit() }, Modifier.weight(1f), 18f)
-        IconBtn(if (star) "★" else "☆", star) { star = !star }
-        IconBtn("!", urgent) { urgent = !urgent }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.width(10.dp))
+            NoteInput(
+                t, { t = it }, if (bucket == "now") "지금 할 일 적고 Enter" else "나중에 할 일 적고 Enter", 80, { submit() },
+                Modifier.weight(1f).padding(end = 10.dp), 18f, onFocus = { focused = it },
+            )
+        }
+        // 입력칸 아래, 오른쪽 정렬: ☆ ! ✓
+        if (focused || t.isNotBlank() || star || urgent) {
+            Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                IconBtn(if (star) "★" else "☆", star) { star = !star }
+                IconBtn("!", urgent) { urgent = !urgent }
+                Box(Modifier.size(40.dp).clickable { submit() }, Alignment.Center) {
+                    Text("✓", color = pal.pen, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(6.dp))
+            }
+        }
     }
 }
 
