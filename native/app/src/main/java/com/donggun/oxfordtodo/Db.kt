@@ -16,7 +16,7 @@ data class Step(val id: String, val title: String, val done: Boolean)
 data class LogRow(val ts: Long, val type: String, val text: String)
 
 /** 로컬 SQLite. 스키마는 Supabase 동기화를 염두에 둔 구조(UUID, updated_at, deleted_at). */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 1) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -25,23 +25,36 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
               bucket TEXT NOT NULL DEFAULT 'now', star INTEGER NOT NULL DEFAULT 0,
               urgent INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
               completed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-              deleted_at INTEGER, archived_at INTEGER)"""
+              deleted_at INTEGER, archived_at INTEGER,
+              sort_order REAL NOT NULL DEFAULT 0, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
         db.execSQL(
             """CREATE TABLE steps(
               id TEXT PRIMARY KEY, item_id TEXT NOT NULL, title TEXT NOT NULL,
               done INTEGER NOT NULL DEFAULT 0, done_at INTEGER, position INTEGER NOT NULL DEFAULT 0,
-              updated_at INTEGER NOT NULL, deleted_at INTEGER)"""
+              updated_at INTEGER NOT NULL, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
         db.execSQL(
             """CREATE TABLE logs(
               id TEXT PRIMARY KEY, item_id TEXT NOT NULL, type TEXT NOT NULL,
-              text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)"""
+              text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
         db.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+        if (o < 2) {
+            db.execSQL("ALTER TABLE items ADD COLUMN sort_order REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE items ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE items SET sort_order = created_at")
+            db.execSQL("ALTER TABLE steps ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE logs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE logs ADD COLUMN deleted_at INTEGER")
+            db.execSQL("ALTER TABLE logs ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE logs SET updated_at = created_at")
+        }
+    }
 
     private fun now() = System.currentTimeMillis()
 
@@ -51,7 +64,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
             "SELECT id,title,description,bucket,star,urgent,done," +
                 "(SELECT COUNT(*) FROM steps s WHERE s.item_id=items.id AND s.deleted_at IS NULL)," +
                 "(SELECT COUNT(*) FROM steps s WHERE s.item_id=items.id AND s.deleted_at IS NULL AND s.done=1) " +
-                "FROM items WHERE bucket=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY done, created_at",
+                "FROM items WHERE bucket=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY done, sort_order, created_at",
             arrayOf(bucket)
         ).use { c ->
             while (c.moveToNext()) out.add(
@@ -71,7 +84,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         val ts = now()
         val v = ContentValues().apply {
             put("id", id); put("title", t); put("bucket", bucket)
-            put("created_at", ts); put("updated_at", ts)
+            put("created_at", ts); put("updated_at", ts); put("sort_order", ts.toDouble())
         }
         writableDatabase.insert("items", null, v)
         log(id, "start", "등록")
@@ -91,7 +104,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     private fun log(itemId: String, type: String, text: String) {
         val v = ContentValues().apply {
             put("id", UUID.randomUUID().toString()); put("item_id", itemId)
-            put("type", type); put("text", text); put("created_at", now())
+            put("type", type); put("text", text); put("created_at", now()); put("updated_at", now())
         }
         writableDatabase.insert("logs", null, v)
     }
@@ -156,6 +169,53 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         readableDatabase.rawQuery(
             "SELECT created_at,type,text FROM logs WHERE item_id=? ORDER BY created_at", arrayOf(itemId)
         ).use { c -> while (c.moveToNext()) out.add(LogRow(c.getLong(0), c.getString(1), c.getString(2))) }
+        return out
+    }
+
+    /** 길게 눌러 옮긴 뒤의 순서(같은 목록의 id 순서)를 저장 */
+    fun reorder(ids: List<String>) {
+        val db = writableDatabase; val ts = now()
+        db.beginTransaction()
+        try {
+            ids.forEachIndexed { i, id ->
+                val v = ContentValues().apply { put("sort_order", (i + 1).toDouble()); put("updated_at", ts) }
+                db.update("items", v, "id=?", arrayOf(id))
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    fun setTitle(id: String, title: String) {
+        val t = title.trim().take(400); if (t.isEmpty()) return
+        val v = ContentValues().apply { put("title", t); put("updated_at", now()) }
+        writableDatabase.update("items", v, "id=?", arrayOf(id))
+    }
+
+    /** 완료 항목을 보관함으로 / 보관함에서 꺼내기 / 완전 삭제(삭제 표시) */
+    fun archiveDone(): Int {
+        val ts = now(); val v = ContentValues().apply { put("archived_at", ts); put("updated_at", ts) }
+        return writableDatabase.update("items", v, "done=1 AND archived_at IS NULL AND deleted_at IS NULL", null)
+    }
+    fun archive(id: String) {
+        val ts = now(); val v = ContentValues().apply { put("archived_at", ts); put("updated_at", ts) }
+        writableDatabase.update("items", v, "id=?", arrayOf(id))
+    }
+    fun restore(id: String) {
+        val v = ContentValues().apply { putNull("archived_at"); put("updated_at", now()) }
+        writableDatabase.update("items", v, "id=?", arrayOf(id))
+    }
+    fun deleteItem(id: String) {
+        val ts = now(); val v = ContentValues().apply { put("deleted_at", ts); put("updated_at", ts) }
+        writableDatabase.update("items", v, "id=?", arrayOf(id))
+    }
+    fun archived(): List<Item> {
+        val out = ArrayList<Item>()
+        readableDatabase.rawQuery(
+            "SELECT id,title,description,bucket,star,urgent,done,0,0 FROM items WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC", null
+        ).use { c ->
+            while (c.moveToNext()) out.add(Item(c.getString(0), c.getString(1), c.getString(2), c.getString(3),
+                c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1, 0, 0))
+        }
         return out
     }
 

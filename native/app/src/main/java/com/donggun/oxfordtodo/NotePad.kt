@@ -77,8 +77,18 @@ fun NotePadApp() {
     var dark by remember { mutableStateOf(db.getSetting("dark", "0") == "1") }
     var showSettings by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("all") }
-    var tick by remember { mutableIntStateOf(0) }
+    var tickLocal by remember { mutableIntStateOf(0) }
+    val tick = tickLocal + SyncState.rev.intValue
     val pager = rememberPagerState { 4 }
+    // 앱을 열 때와 편집 후 잠시 뒤 자동 동기화
+    val lifeOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifeOwner) {
+        val ob = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME || e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) SyncState.sync(ctx)
+        }
+        lifeOwner.lifecycle.addObserver(ob); onDispose { lifeOwner.lifecycle.removeObserver(ob) }
+    }
+    LaunchedEffect(tickLocal) { if (tickLocal > 0) { kotlinx.coroutines.delay(2500); SyncState.sync(ctx) } }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
 
@@ -101,8 +111,8 @@ fun NotePadApp() {
             } else {
                 HorizontalPager(pager, Modifier.weight(1f)) { page ->
                     when (page) {
-                        0 -> ListPage("now", filter, tick) { tick++ }
-                        1 -> ListPage("later", filter, tick) { tick++ }
+                        0 -> ListPage("now", filter, tick) { tickLocal++ }
+                        1 -> ListPage("later", filter, tick) { tickLocal++ }
                         2 -> Placeholder("보관함 — 2단계에서 만듭니다")
                         else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                     }
@@ -327,5 +337,26 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
             keyboardActions = KeyboardActions(onDone = { db.add(t, bucket); t = ""; onChange() }),
             decorationBox = { inner -> Box { if (t.isEmpty()) Text("할 일 추가", color = pal.sub, fontSize = 17.sp); inner() } },
         )
+    }
+}
+
+
+/** 동기화 상태(화면 갱신용). 로그인되어 있을 때만 서버와 주고받는다. */
+object SyncState {
+    val rev = mutableIntStateOf(0)
+    val status = mutableStateOf("")
+    private val busy = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun sync(ctx: android.content.Context, force: Boolean = false) {
+        val db = Db.get(ctx)
+        if (!Sync.loggedIn(db) || !busy.compareAndSet(false, true)) return
+        status.value = "동기화 중…"
+        Thread {
+            try {
+                val (up, down) = Sync.run(ctx)
+                status.value = "동기화 완료 (올림 $up · 받음 $down)"
+                if (down > 0 || force) rev.intValue++
+            } catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName) }
+            finally { busy.set(false) }
+        }.start()
     }
 }

@@ -72,6 +72,49 @@ fun SettingsPane() {
             ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
         }) { Text("알림 설정 열기 (전체 화면 알림 허용)") }
         HorizontalDivider()
+        AccountPane(db)
+        HorizontalDivider()
         OutlinedButton(onClick = { ctx.startActivity(Intent(ctx, LockActivity::class.java)) }) { Text("잠금화면 메모 화면 미리보기") }
     }
+}
+
+
+@Composable
+fun AccountPane(db: Db) {
+    val ctx = LocalContext.current
+    var email by remember { mutableStateOf("") }
+    var pw by remember { mutableStateOf("") }
+    var user by remember { mutableStateOf(Sync.email(db)) }
+    var msg by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val st = SyncState.status.value
+    fun run(block: () -> String) {
+        busy = true; msg = ""
+        Thread {
+            msg = try { block() } catch (e: Exception) { e.message ?: "오류" }
+            user = Sync.email(db); busy = false
+            if (Sync.loggedIn(db)) SyncState.sync(ctx, true)
+        }.start()
+    }
+    Text("계정 · 동기화", style = MaterialTheme.typography.titleMedium)
+    if (Sync.loggedIn(db)) {
+        Text("로그인됨: $user")
+        if (st.isNotEmpty()) Text(st, style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { SyncState.sync(ctx, true) }) { Text("지금 동기화") }
+        OutlinedButton(onClick = { Sync.signOut(db); user = ""; msg = "로그아웃했어요" }) { Text("로그아웃") }
+    } else {
+        Text("로그인하면 이 폰의 할 일이 서버에 저장되고 다른 기기와 같아져요.", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(email, { email = it }, label = { Text("이메일") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(pw, { pw = it }, label = { Text("비밀번호 (6자 이상)") }, singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(enabled = !busy && email.isNotBlank() && pw.length >= 6, onClick = {
+                run { Sync.signIn(db, email.trim(), pw); "로그인했어요" }
+            }) { Text("로그인") }
+            OutlinedButton(enabled = !busy && email.isNotBlank() && pw.length >= 6, onClick = {
+                run { if (Sync.signUp(db, email.trim(), pw)) "가입했어요. 메일의 확인 링크를 누른 뒤 로그인하세요" else "가입하고 로그인했어요" }
+            }) { Text("새로 가입") }
+        }
+    }
+    if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.bodySmall)
 }
