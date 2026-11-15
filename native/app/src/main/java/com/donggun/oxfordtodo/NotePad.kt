@@ -131,9 +131,11 @@ private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
 private fun fmt(ts: Long) = TS.format(Date(ts))
 private val LI = mapOf("start" to "●", "memo" to "✎", "step" to "✓", "undo" to "↺", "done" to "✔", "reopen" to "↺", "move" to "⇄")
 
-private fun rank(i: Item) = (if (i.done) 4 else 0) + (if (i.urgent) 0 else 2) + (if (i.star) 0 else 1)
+private object FlagGroup { var on = true }
+private fun rank(i: Item) = (if (i.done) 4 else 0) + (if (FlagGroup.on) (if (i.urgent) 0 else 2) + (if (i.star) 0 else 1) else 0)
 
 fun visibleItems(db: Db, bucket: String, filter: String): List<Item> {
+    FlagGroup.on = db.getSetting("flag_group", "1") == "1"
     val base = db.list(bucket).filter {
         when (filter) {
             "left" -> !it.done
@@ -173,6 +175,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var filter by remember { mutableStateOf("all") }
     var tickLocal by remember { mutableIntStateOf(0) }
     var addReq by remember { mutableStateOf("" to 0) }
+    var showRank by remember { mutableStateOf(false) }
     val tick = tickLocal + SyncState.rev.intValue
     val open = remember { mutableStateMapOf<String, Boolean>() }
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
@@ -243,10 +246,11 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
-                    }) { addReq = (if (page == 1) "later" else "now") to (addReq.second + 1) }
+                    }, { showRank = true }) { addReq = (if (page == 1) "later" else "now") to (addReq.second + 1) }
                 }
             }
         }
+        if (showRank) RankDialog(db, { showRank = false }) { showRank = false; tickLocal++ }
         pendingDelete?.let { req ->
             val close = { pendingDelete = null }
             AlertDialog(
@@ -438,15 +442,19 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onAdd: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
+    val btn = Modifier.size(width = 62.dp, height = 44.dp)
     Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(66.dp)) {
         if (page < 2) {
-            Text(
-                "완료 항목\n지우기", color = pal.ink, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 10.dp).clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onClear() }.padding(horizontal = 10.dp, vertical = 6.dp),
-            )
+            Row(Modifier.align(Alignment.CenterStart).padding(start = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onClear() }, Alignment.Center) {
+                    Text("완료 항목\n지우기", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+                }
+                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onRank() }, Alignment.Center) {
+                    Text("우선순위\n가르기", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+                }
+            }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -464,11 +472,9 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
             }
         }
         if (page < 2) {
-            Text(
-                "할 일\n추가", color = pal.bg, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp).clip(RoundedCornerShape(6.dp))
-                    .background(pal.ink).clickable { onAdd() }.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
+            Box(btn.align(Alignment.CenterEnd).padding(end = 0.dp).offset(x = (-8).dp).clip(RoundedCornerShape(6.dp)).background(pal.ink).clickable { onAdd() }, Alignment.Center) {
+                Text("할 일\n추가", color = pal.bg, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+            }
         }
     }
 }
@@ -536,7 +542,8 @@ fun ListPage(
     val db = Db.get(LocalContext.current)
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
     val listState = rememberLazyListState()
-    LaunchedEffect(addReq) { if (addReq > 0) listState.animateScrollToItem(order.size) }
+    var topAdd by remember { mutableStateOf(false) }
+    LaunchedEffect(addReq) { if (addReq > 0) { topAdd = true; listState.animateScrollToItem(0) } }
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
 
@@ -560,6 +567,7 @@ fun ListPage(
     }
 
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        if (topAdd) item(key = "topadd") { AddRow(bucket, { onChange(); }, addReq, true) { topAdd = false } }
         if (order.isEmpty()) item { Box(Modifier.fillMaxWidth().height(ROW).ruled(), Alignment.CenterStart) { Text(if (filter == "all" || filter == "left") "비어 있어요" else "해당하는 일이 없어요", color = LocalPal.current.sub, fontSize = 13.sp, modifier = Modifier.padding(start = MARGIN + 12.dp)) } }
         items(order, key = { it.id }) { r ->
             val dragging = dragId == r.id
@@ -571,7 +579,7 @@ fun ListPage(
                 )
             }
         }
-        item { AddRow(bucket, onChange, addReq) }
+        item { AddRow(bucket, onChange) }
         items(10) { Box(Modifier.fillMaxWidth().height(ROW).ruled()) }
     }
 }
@@ -925,7 +933,7 @@ private fun IconBtn(label: String, on: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0) {
+private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0, top: Boolean = false, onDone: () -> Unit = {}) {
     val ctx = LocalContext.current
     val db = Db.get(ctx)
     val pal = LocalPal.current
@@ -939,7 +947,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0) {
     val win = androidx.compose.ui.platform.LocalWindowInfo.current
     LaunchedEffect(addReq) { if (addReq > 0) { kotlinx.coroutines.delay(120); fr.requestFocus() } }
     LaunchedEffect(refocus) { if (refocus > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
-    fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent); t = ""; star = false; urgent = false; onChange() } }
+    fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent, top); t = ""; star = false; urgent = false; onChange(); onDone() } }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
@@ -947,7 +955,11 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0) {
             NoteInput(
                 t, { t = it }, if (bucket == "now") "지금 할 일 적고 ✓" else "나중에 할 일 적고 ✓", 80, { submit() },
                 Modifier.weight(1f).padding(end = 10.dp), 18f, focusRequester = fr,
-                onFocus = { f -> if (!f && focused && win.isWindowFocused && t.isNotBlank() && !ask) ask = true; focused = f },
+                onFocus = { f ->
+                    if (!f && focused && win.isWindowFocused && t.isNotBlank() && !ask) ask = true
+                    else if (!f && focused && top && t.isBlank() && !ask) onDone()
+                    focused = f
+                },
             )
         }
         // 입력칸 아래, 오른쪽 정렬: ☆ ! ✓
@@ -974,7 +986,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0) {
                 Spacer(Modifier.width(6.dp))
             }
         }
-        if (ask) SaveAsk(t, onSave = { ask = false; submit() }, onDiscard = { ask = false; t = ""; star = false; urgent = false }, onBack = { ask = false; refocus++ })
+        if (ask) SaveAsk(t, onSave = { ask = false; submit() }, onDiscard = { ask = false; t = ""; star = false; urgent = false; if (top) onDone() }, onBack = { ask = false; refocus++ })
     }
 }
 
@@ -1022,5 +1034,103 @@ object SyncState {
             } catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName) }
             finally { busy.set(false) }
         }.start()
+    }
+}
+
+
+private data class RankState(val sorted: List<Item>, val i: Int, val lo: Int, val hi: Int, val n: Int)
+
+@Composable
+private fun RankCard(modifier: Modifier, item: Item, onClick: () -> Unit) {
+    val pal = LocalPal.current
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(pal.panel).border(2.dp, pal.pen, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(18.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(item.title, color = pal.pen, fontSize = 24.sp, lineHeight = 32.sp, fontFamily = Gaegu, fontWeight = FontWeight.Bold, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        val first = item.description.lines().firstOrNull { it.isNotBlank() }
+        if (first != null) Text(first, color = pal.sub, fontSize = 14.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+        val tags = listOfNotNull(if (item.urgent) "! 긴급" else null, if (item.star) "★ 중요" else null, if (item.stepsTotal > 0) "절차 ${item.stepsTotal}개" else null)
+        if (tags.isNotEmpty()) Text(tags.joinToString("  ·  "), color = pal.sub, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+/** 지금 할 일 두 개씩 맞붙여 더 급한 쪽을 고르면 전체 우선순위가 정해진다 (이진 삽입 정렬 방식이라 비교 횟수가 적다) */
+@Composable
+private fun RankDialog(db: Db, onClose: () -> Unit, onApplied: () -> Unit) {
+    val pal = LocalPal.current
+    val items = remember { db.list("now").filter { !it.done } }
+    var st by remember { mutableStateOf(RankState(items.take(1), 1, 0, 1, 0)) }
+    val hist = remember { mutableStateListOf<RankState>() }
+    var groupFlags by remember { mutableStateOf(false) }
+    val total = remember { (1 until items.size).sumOf { j -> kotlin.math.ceil(kotlin.math.log2((j + 1).toDouble())).toInt() } }
+    fun pick(challengerWins: Boolean) {
+        hist.add(st)
+        val mid = (st.lo + st.hi) / 2
+        var lo = st.lo; var hi = st.hi
+        if (challengerWins) hi = mid else lo = mid + 1
+        var sorted = st.sorted; var i = st.i
+        if (lo >= hi) { sorted = sorted.toMutableList().also { it.add(lo, items[i]) }; i++; lo = 0; hi = sorted.size }
+        st = RankState(sorted, i, lo, hi, st.n + 1)
+    }
+    val finished = items.size >= 2 && st.i >= items.size
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val dd = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
+            Column(Modifier.fillMaxSize().background(pal.bg).statusBarsPadding().navigationBarsPadding()) {
+                Row(Modifier.fillMaxWidth().background(pal.bar).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clickable { onClose() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
+                    Text("우선순위 가르기", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+                    Text(
+                        "되돌리기", color = pal.barInk.copy(alpha = if (hist.isNotEmpty()) 1f else 0.35f), fontSize = 13.sp,
+                        modifier = Modifier.clickable(enabled = hist.isNotEmpty()) { st = hist.removeAt(hist.lastIndex) }.padding(horizontal = 12.dp, vertical = 14.dp),
+                    )
+                }
+                if (items.size < 2) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { Text("비교할 지금 할 일이 2개 이상 필요해요", color = pal.sub, fontSize = 15.sp) }
+                } else if (!finished) {
+                    val mid = (st.lo + st.hi) / 2
+                    Text(
+                        "어느 쪽이 더 우선인가요? 눌러서 고르세요  ·  ${st.n + 1}번째 비교 (최대 ${total}번)",
+                        color = pal.sub, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                    )
+                    Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RankCard(Modifier.weight(1f), items[st.i]) { pick(true) }
+                        Text("VS", color = pal.margin, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
+                        RankCard(Modifier.weight(1f), st.sorted[mid]) { pick(false) }
+                    }
+                } else {
+                    Text("결과 · 위에서부터 우선순위", color = pal.sub, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        st.sorted.forEachIndexed { idx, it ->
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("${idx + 1}위", color = pal.margin, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
+                                Text(it.title, color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, modifier = Modifier.weight(1f), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text("${items.size - idx}점", color = pal.sub, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().clickable { groupFlags = !groupFlags }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = groupFlags, onCheckedChange = { groupFlags = it })
+                        Text("긴급·중요 표시 항목을 순서와 상관없이 먼저 보이기 (끄면 이 순서 그대로 보여요)", color = pal.sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "다시 하기", color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).border(1.dp, pal.ink, RoundedCornerShape(50))
+                                .clickable { hist.clear(); st = RankState(items.take(1), 1, 0, 1, 0) }.padding(vertical = 14.dp),
+                        )
+                        Text(
+                            "이 순서로 정리", color = pal.bg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.weight(1.4f).clip(RoundedCornerShape(50)).background(pal.ink)
+                                .clickable { db.setSetting("flag_group", if (groupFlags) "1" else "0"); db.reorder(st.sorted.map { it.id }); onApplied() }.padding(vertical = 14.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }

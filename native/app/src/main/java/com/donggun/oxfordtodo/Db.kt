@@ -77,14 +77,17 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
-    fun add(title: String, bucket: String = "now", star: Boolean = false, urgent: Boolean = false): String {
+    fun add(title: String, bucket: String = "now", star: Boolean = false, urgent: Boolean = false, top: Boolean = false): String {
         val t = title.trim()
         if (t.isEmpty()) return ""
         val id = UUID.randomUUID().toString()
         val ts = now()
         val v = ContentValues().apply {
             put("id", id); put("title", t.take(400)); put("bucket", bucket); put("star", if (star) 1 else 0); put("urgent", if (urgent) 1 else 0)
-            put("created_at", ts); put("updated_at", ts); put("sort_order", ts.toDouble())
+            put("created_at", ts); put("updated_at", ts)
+            val minOrder = if (top) readableDatabase.rawQuery("SELECT MIN(sort_order) FROM items WHERE bucket=? AND deleted_at IS NULL AND archived_at IS NULL", arrayOf(bucket))
+                .use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getDouble(0) else null } else null
+            put("sort_order", if (minOrder != null) minOrder - 1.0 else ts.toDouble())
         }
         writableDatabase.insert("items", null, v)
         log(id, "start", "등록")
