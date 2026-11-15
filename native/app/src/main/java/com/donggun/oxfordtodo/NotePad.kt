@@ -721,6 +721,12 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
                                 textDecoration = if (s.done) TextDecoration.LineThrough else null,
                             )
                         }
+                    if (!item.done) Text(
+                        "✓ 모두 완료 · 이 일 완료", color = pal.bg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(pal.ink)
+                            .clickable { steps.filter { !it.done }.forEach { db.toggleStep(it.id, item.id, true) }; db.toggleDone(item.id, true); end() }.padding(vertical = 15.dp),
+                    )
                     }
                 }
             }

@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -36,7 +37,7 @@ object Bulk {
             if (sb.isNotEmpty()) sb.append("\n\n")
             sb.append(it.title.replace(Regex("\\s*\\n\\s*"), " "))
             it.description.lines().map { l -> l.trimEnd() }.filter { l -> l.isNotBlank() }.forEach { l -> sb.append("\n0 ").append(l) }
-            db.steps(it.id).forEach { s -> sb.append("\n1 ").append(s.title.replace(Regex("\\s*\\n\\s*"), " ")) }
+            db.steps(it.id).forEachIndexed { i, s -> sb.append("\n").append(i + 1).append(" ").append(s.title.replace(Regex("\\s*\\n\\s*"), " ")) }
         }
         return sb.toString()
     }
@@ -45,11 +46,11 @@ object Bulk {
     fun parse(text: String): Pair<List<Entry>, Int> {
         val out = ArrayList<Entry>()
         var bad = 0
-        var title = ArrayList<String>(); var desc = ArrayList<String>(); var steps = ArrayList<String>(); var any = false
+        var title = ArrayList<String>(); var desc = ArrayList<String>(); var steps = ArrayList<Pair<Int, String>>(); var any = false
         fun flush() {
             if (any) {
                 if (title.isEmpty()) bad++
-                else out.add(Entry(title.joinToString(" ").trim(), desc.joinToString("\n").trim(), steps.toList()))
+                else out.add(Entry(title.joinToString(" ").trim(), desc.joinToString("\n").trim(), steps.sortedBy { it.first }.map { it.second }))
             }
             title = ArrayList(); desc = ArrayList(); steps = ArrayList(); any = false
         }
@@ -57,15 +58,26 @@ object Bulk {
             val line = raw.trimEnd()
             if (line.isBlank()) { flush(); continue }
             any = true
+            val m = Regex("^(\\d+) (.*)$").matchEntire(line)
             when {
-                line.startsWith("0 ") -> desc.add(line.substring(2))
-                line.startsWith("1 ") -> { val s = line.substring(2).trim(); if (s.isNotEmpty()) steps.add(s) }
-                line == "0" || line == "1" -> {}
+                m != null -> {
+                    val n = m.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE; val t = m.groupValues[2]
+                    if (n == 0) desc.add(t) else { val s = t.trim(); if (s.isNotEmpty()) steps.add(n to s) }
+                }
+                line.all { it.isDigit() } -> {}
                 else -> title.add(line.trim())
             }
         }
         flush()
         return out to bad
+    }
+
+    /** 정리된 글(절차 번호를 1부터 차례로) */
+    fun entriesText(entries: List<Entry>): String = entries.joinToString("\n\n") { e ->
+        val sb = StringBuilder(e.title)
+        e.desc.lines().filter { it.isNotBlank() }.forEach { sb.append("\n0 ").append(it) }
+        e.steps.forEachIndexed { i, t -> sb.append("\n").append(i + 1).append(" ").append(t) }
+        sb.toString()
     }
 
     /** 반영했을 때 사라질 항목 수 */
@@ -129,6 +141,7 @@ fun BulkEditDialog(db: Db, onClose: () -> Unit, onSaved: () -> Unit) {
     var err by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pair<List<Bulk.Entry>, Int>?>(null) }
     var askClose by remember { mutableStateOf(false) }
+    var wasFocused by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
 
     fun tryClose() { if (text != initial) askClose = true else onClose() }
@@ -138,7 +151,7 @@ fun BulkEditDialog(db: Db, onClose: () -> Unit, onSaved: () -> Unit) {
     }
     fun save() {
         val (entries, bad) = Bulk.parse(text)
-        if (bad > 0) { err = "제목이 없는 묶음이 ${bad}개 있어요. 묶음의 첫 줄에 제목을 써 주세요 (0 이나 1 로 시작하면 설명/절차로 읽혀요)."; return }
+        if (bad > 0) { err = "제목이 없는 묶음이 ${bad}개 있어요. 묶음의 첫 줄에 제목을 써 주세요 (숫자+띄어쓰기로 시작하면 설명/절차로 읽혀요)."; return }
         val removed = Bulk.removedCount(db, entries)
         if (removed > 0) confirm = entries to removed else commit(entries)
     }
@@ -157,13 +170,19 @@ fun BulkEditDialog(db: Db, onClose: () -> Unit, onSaved: () -> Unit) {
                     Button({ save() }, enabled = text != initial) { Text("저장") }
                 }
                 Text(
-                    "제목만 줄마다 쓰고 항목 사이는 빈 줄 · \"0 \" 로 시작하는 줄 = 설명 · \"1 \" 로 시작하는 줄 = 절차",
+                    "제목만 줄마다 쓰고 항목 사이는 빈 줄 · \"0 \" 로 시작하는 줄 = 설명 · \"1 \", \"2 \", \"3 \" … 으로 시작하는 줄 = 절차 (번호 순서대로 정리돼요)",
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = cs.onBackground.copy(alpha = 0.65f),
                 )
                 HorizontalDivider()
                 BasicTextField(
                     value = text, onValueChange = { text = it },
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).onFocusChanged { f ->
+                        if (f.isFocused) wasFocused = true
+                        else if (wasFocused) {
+                            val (es, bad) = Bulk.parse(text)
+                            if (bad == 0 && es.isNotEmpty()) { val n = Bulk.entriesText(es); if (n != text) text = n }
+                        }
+                    },
                     textStyle = TextStyle(color = cs.onBackground, fontSize = 16.sp, lineHeight = 24.sp),
                     cursorBrush = SolidColor(cs.primary),
                 )
