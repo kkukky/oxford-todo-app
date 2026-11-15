@@ -655,6 +655,70 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
     if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
 }
 
+/** 집중 모드: 이 할 일만 전체 화면으로 보여 주고 타이머를 돌린다 */
+@Composable
+private fun FocusScreen(item: Item, onClose: () -> Unit) {
+    val db = Db.get(LocalContext.current)
+    val pal = LocalPal.current
+    var v by remember { mutableIntStateOf(0) }
+    val steps = remember(v) { db.steps(item.id) }
+    val nextId = steps.firstOrNull { !it.done }?.id
+    var sec by remember { mutableLongStateOf(0L) }
+    var running by remember { mutableStateOf(true) }
+    LaunchedEffect(running) { while (running) { kotlinx.coroutines.delay(1000); sec++ } }
+    fun end() { if (sec >= 60) db.focusLog(item.id, sec / 60); onClose() }
+    val time = (sec / 3600).let { h -> if (h > 0) "%d:%02d:%02d".format(h, (sec % 3600) / 60, sec % 60) else "%02d:%02d".format((sec % 3600) / 60, sec % 60) }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { end() },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val view = androidx.compose.ui.platform.LocalView.current
+        DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
+        val dd = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
+            Column(Modifier.fillMaxSize().background(pal.bg).navigationBarsPadding()) {
+                Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clickable { end() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
+                    Text("집중", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(48.dp))
+                }
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Text(tagged(item.title, tagColor()), color = pal.pen, fontSize = 26.sp, lineHeight = 36.sp, fontFamily = Gaegu, fontWeight = FontWeight.Bold)
+                    if (item.description.isNotBlank()) Text(item.description, color = pal.ink, fontSize = 17.sp, lineHeight = 25.sp, fontFamily = Gaegu)
+                    Text(time, color = pal.ink, fontSize = 64.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Text(
+                            if (running) "일시정지" else "계속", color = pal.bg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(pal.ink).clickable { running = !running }.padding(horizontal = 18.dp, vertical = 11.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "처음부터", color = pal.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, pal.ink, RoundedCornerShape(50)).clickable { sec = 0 }.padding(horizontal = 18.dp, vertical = 11.dp),
+                        )
+                    }
+                    steps.forEach { s ->
+                        Row(
+                            Modifier.fillMaxWidth().drawBehind { drawLine(pal.rule, Offset(0f, size.height), Offset(size.width, size.height), 1f) }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = s.done, onCheckedChange = { db.toggleStep(s.id, item.id, it); v++ },
+                                colors = CheckboxDefaults.colors(checkedColor = pal.margin, uncheckedColor = pal.pen, checkmarkColor = pal.bg),
+                            )
+                            Text(
+                                s.title, color = if (s.done) pal.sub else pal.pen, fontSize = 18.sp, fontFamily = Gaegu,
+                                fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal,
+                                textDecoration = if (s.done) TextDecoration.LineThrough else null,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: () -> Unit) {
     val db = Db.get(LocalContext.current)
@@ -663,6 +727,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
     var savedDesc by remember(item.id) { mutableStateOf(item.description) }
     var descFocused by remember(item.id) { mutableStateOf(false) }
     var askDesc by remember(item.id) { mutableStateOf(false) }
+    var focusMode by remember(item.id) { mutableStateOf(false) }
     var descRefocus by remember(item.id) { mutableIntStateOf(0) }
     val descFr = remember(item.id) { FocusRequester() }
     val win = androidx.compose.ui.platform.LocalWindowInfo.current
@@ -774,12 +839,18 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
         Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(MARGIN + 10.dp))
             Text(
+                "◎ 집중", color = pal.ink, fontSize = 12.sp,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { focus.clearFocus(); focusMode = true }.padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            if (steps.isNotEmpty()) Text("${steps.count { it.done }} / ${steps.size} 단계 완료", color = pal.sub, fontSize = 10.sp, modifier = Modifier.padding(end = 10.dp))
+            Text(
                 "삭제", color = pal.ink, fontSize = 12.sp,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onDelete() }.padding(horizontal = 12.dp, vertical = 7.dp),
             )
-            Spacer(Modifier.weight(1f))
-            if (steps.isNotEmpty()) Text("${steps.count { it.done }} / ${steps.size} 단계 완료", color = pal.sub, fontSize = 10.sp, modifier = Modifier.padding(end = 12.dp))
+            Spacer(Modifier.width(12.dp))
         }
+        if (focusMode) FocusScreen(item) { focusMode = false; refresh() }
     }
 }
 
@@ -796,7 +867,8 @@ private fun IconBtn(label: String, on: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun AddRow(bucket: String, onChange: () -> Unit) {
-    val db = Db.get(LocalContext.current)
+    val ctx = LocalContext.current
+    val db = Db.get(ctx)
     val pal = LocalPal.current
     var t by remember { mutableStateOf("") }
     var star by remember { mutableStateOf(false) }
@@ -820,7 +892,20 @@ private fun AddRow(bucket: String, onChange: () -> Unit) {
         }
         // 입력칸 아래, 오른쪽 정렬: ☆ ! ✓
         if (focused || t.isNotBlank() || star || urgent) {
-            Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "복사", color = pal.ink, fontSize = 12.sp,
+                    modifier = Modifier.padding(start = MARGIN + 10.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp))
+                        .clickable {
+                            if (t.isBlank()) android.widget.Toast.makeText(ctx, "복사할 내용이 없어요", android.widget.Toast.LENGTH_SHORT).show()
+                            else {
+                                (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                    .setPrimaryClip(android.content.ClipData.newPlainText("memo", t))
+                                android.widget.Toast.makeText(ctx, "복사했어요", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }.padding(horizontal = 12.dp, vertical = 7.dp),
+                )
+                Spacer(Modifier.weight(1f))
                 IconBtn(if (star) "★" else "☆", star) { star = !star }
                 IconBtn("!", urgent) { urgent = !urgent }
                 Box(Modifier.size(40.dp).clickable { submit() }, Alignment.Center) {

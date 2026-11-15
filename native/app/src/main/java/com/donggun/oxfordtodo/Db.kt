@@ -101,6 +101,8 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         log(id, if (done) "done" else "reopen", if (done) "완료" else "다시 진행")
     }
 
+    fun focusLog(itemId: String, minutes: Long) = log(itemId, "focus", "집중 ${minutes}분")
+
     private fun log(itemId: String, type: String, text: String) {
         val v = ContentValues().apply {
             put("id", UUID.randomUUID().toString()); put("item_id", itemId)
