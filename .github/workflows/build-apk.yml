@@ -3,6 +3,7 @@ name: APK 만들기
 on:
   push:
     branches: [main]
+    paths-ignore: ["native/**", ".github/workflows/build-native-apk.yml"]
   workflow_dispatch:
 
 permissions:
