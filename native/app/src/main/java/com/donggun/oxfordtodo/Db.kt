@@ -83,7 +83,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         val id = UUID.randomUUID().toString()
         val ts = now()
         val v = ContentValues().apply {
-            put("id", id); put("title", t.take(400)); put("bucket", bucket); put("star", if (star) 1 else 0); put("urgent", if (urgent) 1 else 0)
+            put("id", id); put("title", t.take(1000)); put("bucket", bucket); put("star", if (star) 1 else 0); put("urgent", if (urgent) 1 else 0)
             put("created_at", ts); put("updated_at", ts)
             val minOrder = if (top) readableDatabase.rawQuery("SELECT MIN(sort_order) FROM items WHERE bucket=? AND deleted_at IS NULL AND archived_at IS NULL", arrayOf(bucket))
                 .use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getDouble(0) else null } else null
@@ -217,7 +217,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     }
 
     fun setTitle(id: String, title: String) {
-        val t = title.trim().take(400); if (t.isEmpty()) return
+        val t = title.trim().take(1000); if (t.isEmpty()) return
         val v = ContentValues().apply { put("title", t); put("updated_at", now()) }
         writableDatabase.update("items", v, "id=?", arrayOf(id))
     }

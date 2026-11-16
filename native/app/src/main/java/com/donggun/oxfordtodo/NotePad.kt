@@ -666,7 +666,7 @@ private fun ItemBlock(
     }
 }
 
-/** ⋯ 를 누르면 열리는 제목 편집칸: 4줄 높이, 400자, 커서는 맨 뒤(스페이스 한 칸 뒤) */
+/** ⋯ 를 누르면 열리는 제목 편집칸: 4줄 높이, 1000자, 커서는 맨 뒤(스페이스 한 칸 뒤) */
 @Composable
 private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone: () -> Unit) {
     val db = Db.get(LocalContext.current)
@@ -700,7 +700,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
             }
             BasicTextField(
                 value = tf,
-                onValueChange = { v -> tf = v.copy(text = v.text.take(400)) },
+                onValueChange = { v -> tf = v.copy(text = v.text.take(1000)) },
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp).focusRequester(fr),
                 textStyle = TextStyle(color = pal.pen, fontSize = 22.sp, fontFamily = Gaegu, lineHeight = 33.sp),
                 cursorBrush = SolidColor(pal.pen),
@@ -839,7 +839,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("설명", color = pal.sub, fontSize = 10.sp) }
             Spacer(Modifier.width(8.dp))
             NoteInput(
-                desc, { desc = it }, "설명 적기", 120, {}, Modifier.weight(1f).padding(end = 6.dp), 17f,
+                desc, { desc = it }, "설명 적기", 1000, {}, Modifier.weight(1f).padding(end = 6.dp), 17f,
                 onFocus = { f -> if (!f && descFocused && win.isWindowFocused && desc != savedDesc && !askDesc) askDesc = true; descFocused = f },
                 fit = true, focusRequester = descFr,
             )
@@ -917,7 +917,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.width(8.dp))
             NoteInput(
-                newStep, { newStep = it }, if (steps.isEmpty()) "첫 번째 절차를 적어 보세요" else "다음 절차 적고 Enter", 80,
+                newStep, { newStep = it }, if (steps.isEmpty()) "첫 번째 절차를 적어 보세요" else "다음 절차 적고 Enter", 1000,
                 { db.addStep(item.id, newStep); newStep = ""; refresh() }, Modifier.weight(1f), 16f, enterSubmits = true,
             )
         }
@@ -971,7 +971,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0, top: B
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.width(10.dp))
             NoteInput(
-                t, { t = it }, if (bucket == "now") "지금 할 일 적고 ✓" else "나중에 할 일 적고 ✓", 80, { submit() },
+                t, { t = it }, if (bucket == "now") "지금 할 일 적고 ✓" else "나중에 할 일 적고 ✓", 1000, { submit() },
                 Modifier.weight(1f).padding(end = 10.dp), 18f, focusRequester = fr,
                 onFocus = { f ->
                     if (!f && focused && win.isWindowFocused && t.isNotBlank() && !ask) ask = true
