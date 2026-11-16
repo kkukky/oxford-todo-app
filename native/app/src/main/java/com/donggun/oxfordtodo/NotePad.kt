@@ -188,18 +188,32 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     val scaledD = Density(baseD.density, baseD.fontScale * FontPref.scale)
     val imeOn = WindowInsets.isImeVisible
     LaunchedEffect(pager.currentPage) { fm.clearFocus() }
+    var anyFocus by remember { mutableStateOf(false) }
+    var touched by remember { mutableStateOf(false) }
+    // 앱을 열 때 시스템이 첫 입력칸에 멋대로 포커스를 주는 경우가 있어, 사용자가 만지기 전이면 풀어 준다
+    LaunchedEffect(Unit) { for (d in longArrayOf(120, 250, 400, 600)) { kotlinx.coroutines.delay(d); if (!touched) fm.clearFocus() } }
+    // 키보드를 뒤로가기로 내리면 입력 모드도 같이 빠져나온다
+    var wasIme by remember { mutableStateOf(false) }
+    LaunchedEffect(imeOn) { if (wasIme && !imeOn) fm.clearFocus(); wasIme = imeOn }
     val pal = if (dark) DarkPal else LightPal
     val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
 
     val lifeOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifeOwner) {
+        var pausedAt = 0L
         val ob = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) pausedAt = System.currentTimeMillis()
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && pausedAt > 0 && System.currentTimeMillis() - pausedAt > 20_000) {
+                touched = false
+                scope.launch { for (d in longArrayOf(150, 300, 500)) { kotlinx.coroutines.delay(d); if (!touched) fm.clearFocus() } }
+            }
             if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME || e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) SyncState.sync(ctx)
         }
         lifeOwner.lifecycle.addObserver(ob); onDispose { lifeOwner.lifecycle.removeObserver(ob) }
     }
     LaunchedEffect(tickLocal) { if (tickLocal > 0) { kotlinx.coroutines.delay(2500); SyncState.sync(ctx) } }
 
+    BackHandler(enabled = anyFocus) { fm.clearFocus() }
     BackHandler(enabled = showSettings || searching) { if (searching) searching = false else showSettings = false }
 
     fun askDelete(list: List<Item>, title: String) {
@@ -208,7 +222,11 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     }
 
     CompositionLocalProvider(LocalPal provides pal) {
-        Column(Modifier.fillMaxSize().background(pal.bg).imePadding()) {
+        Column(
+            Modifier.fillMaxSize().background(pal.bg).imePadding()
+                .onFocusChanged { anyFocus = it.hasFocus }
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); touched = true } } },
+        ) {
             Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { fm.clearFocus(); showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { fm.clearFocus(); searching = !searching; showSettings = false }
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
