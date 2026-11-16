@@ -710,6 +710,10 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
                 Modifier.fillMaxWidth().drawBehind { drawLine(pal.rule, Offset(0f, 0f), Offset(size.width, 0f), 1f) }.padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
             ) {
+                Text(
+                    "${tf.text.length} / 1000", color = if (tf.text.length >= 1000) pal.urgentBg else pal.sub, fontSize = 12.sp,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                )
                 IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
                 IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
                 Box(Modifier.size(40.dp).clickable { finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange() }, Alignment.Center) {
