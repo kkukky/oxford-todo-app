@@ -178,6 +178,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var addReq by remember { mutableStateOf("" to 0) }
     var showRank by remember { mutableStateOf(false) }
     var quick by remember { mutableStateOf(false) }
+    var quickPage by remember { mutableIntStateOf(0) }
     val quickSel = remember { mutableStateMapOf<String, Boolean>() }
     var flash by remember { mutableStateOf("") }
     LaunchedEffect(flash) { if (flash.isNotEmpty()) { kotlinx.coroutines.delay(2500); flash = "" } }
@@ -220,7 +221,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
 
     BackHandler(enabled = anyFocus) { fm.clearFocus() }
     BackHandler(enabled = quick && !anyFocus && !showSettings && !searching) { quick = false; quickSel.clear() }
-    LaunchedEffect(pager.currentPage, showSettings) { if (quick && (pager.currentPage != 0 || showSettings)) { quick = false; quickSel.clear() } }
+    LaunchedEffect(pager.currentPage, showSettings) { if (quick && (pager.currentPage != quickPage || showSettings)) { quick = false; quickSel.clear() } }
     BackHandler(enabled = showSettings || searching) { if (searching) searching = false else showSettings = false }
 
     fun askDelete(list: List<Item>, title: String) {
@@ -259,8 +260,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick, quickSel)
-                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0)
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel)
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel)
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                             }
@@ -271,14 +272,14 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
-                    }, { showRank = true }, quick, quickSel.size, flash, {
-                        if (quick) { quick = false; quickSel.clear() } else { fm.clearFocus(); quick = true; quickSel.clear(); flash = "" }
+                    }, { showRank = true }, quick, quickPage, quickSel.size, flash, {
+                        if (quick) { quick = false; quickSel.clear() } else { fm.clearFocus(); quick = true; quickPage = page; quickSel.clear(); flash = "" }
                     }) {
                         if (quick) {
                             val ids = quickSel.keys.toList()
-                            ids.forEach { db.move(it, "later") }
+                            ids.forEach { db.move(it, if (quickPage == 1) "now" else "later") }
                             quick = false; quickSel.clear()
-                            if (ids.isNotEmpty()) flash = "${ids.size}개를 나중 할 일로 옮겼어요"
+                            if (ids.isNotEmpty()) flash = if (quickPage == 1) "${ids.size}개를 지금 할 일로 올렸어요" else "${ids.size}개를 나중 할 일로 옮겼어요"
                             tickLocal++
                         } else addReq = (if (page == 1) "later" else "now") to (addReq.second + 1)
                     }
@@ -477,7 +478,7 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, quickPage: Int, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
     val btn = Modifier.size(width = 62.dp, height = 44.dp)
     Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(66.dp)) {
@@ -494,7 +495,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else "AI 분석")
-                else if (flash.isNotEmpty()) flash else if (quick) "나중으로 보낼 일을 고르세요" else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
+                else if (flash.isNotEmpty()) flash else if (quick) (if (quickPage == 1) "지금 할 일로 올릴 일을 고르세요" else "나중으로 보낼 일을 고르세요") else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
                 color = pal.sub, fontSize = 10.sp,
             )
             Row {
@@ -508,7 +509,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
         }
         if (page < 2) {
             Row(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                if (page == 0) Box(
+                Box(
                     btn.clip(RoundedCornerShape(6.dp)).then(if (quick) Modifier.background(pal.ink) else Modifier.border(1.dp, pal.rule, RoundedCornerShape(6.dp))).clickable { onQuick() }, Alignment.Center,
                 ) {
                     Text(if (quick) "취소" else "빠른\n정리", color = if (quick) pal.bg else pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
@@ -688,7 +689,7 @@ private fun ItemBlock(
             if (quick) {
                 Box(Modifier.size(width = 44.dp, height = ROW).clickable { onSelect() }, Alignment.Center) {
                     Box(Modifier.size(26.dp).border(2.dp, if (selected) pal.margin else pal.pen, RoundedCornerShape(3.dp)), Alignment.Center) {
-                        if (selected) ArrowIcon(true, pal.margin)
+                        if (selected) ArrowIcon(bucket == "now", pal.margin)
                     }
                 }
             } else Box(Modifier.size(width = 44.dp, height = ROW).clickable { editing = true }, Alignment.Center) {
