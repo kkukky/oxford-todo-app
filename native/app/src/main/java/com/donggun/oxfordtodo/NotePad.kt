@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
@@ -176,6 +177,10 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var tickLocal by remember { mutableIntStateOf(0) }
     var addReq by remember { mutableStateOf("" to 0) }
     var showRank by remember { mutableStateOf(false) }
+    var quick by remember { mutableStateOf(false) }
+    val quickSel = remember { mutableStateMapOf<String, Boolean>() }
+    var flash by remember { mutableStateOf("") }
+    LaunchedEffect(flash) { if (flash.isNotEmpty()) { kotlinx.coroutines.delay(2500); flash = "" } }
     val tick = tickLocal + SyncState.rev.intValue
     val open = remember { mutableStateMapOf<String, Boolean>() }
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
@@ -214,6 +219,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     LaunchedEffect(tickLocal) { if (tickLocal > 0) { kotlinx.coroutines.delay(2500); SyncState.sync(ctx) } }
 
     BackHandler(enabled = anyFocus) { fm.clearFocus() }
+    BackHandler(enabled = quick && !anyFocus && !showSettings && !searching) { quick = false; quickSel.clear() }
+    LaunchedEffect(pager.currentPage, showSettings) { if (quick && (pager.currentPage != 0 || showSettings)) { quick = false; quickSel.clear() } }
     BackHandler(enabled = showSettings || searching) { if (searching) searching = false else showSettings = false }
 
     fun askDelete(list: List<Item>, title: String) {
@@ -252,7 +259,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0)
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick, quickSel)
                                 1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0)
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
@@ -264,7 +271,17 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
-                    }, { showRank = true }) { addReq = (if (page == 1) "later" else "now") to (addReq.second + 1) }
+                    }, { showRank = true }, quick, quickSel.size, flash, {
+                        if (quick) { quick = false; quickSel.clear() } else { fm.clearFocus(); quick = true; quickSel.clear(); flash = "" }
+                    }) {
+                        if (quick) {
+                            val ids = quickSel.keys.toList()
+                            ids.forEach { db.move(it, "later") }
+                            quick = false; quickSel.clear()
+                            if (ids.isNotEmpty()) flash = "${ids.size}개를 나중 할 일로 옮겼어요"
+                            tickLocal++
+                        } else addReq = (if (page == 1) "later" else "now") to (addReq.second + 1)
+                    }
                 }
             }
         }
@@ -460,16 +477,16 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, onAdd: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
     val btn = Modifier.size(width = 62.dp, height = 44.dp)
     Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(66.dp)) {
         if (page < 2) {
             Row(Modifier.align(Alignment.CenterStart).padding(start = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onClear() }, Alignment.Center) {
+                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable(enabled = !quick) { onClear() }.alpha(if (quick) 0.4f else 1f), Alignment.Center) {
                     Text("완료 항목\n지우기", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
                 }
-                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable { onRank() }, Alignment.Center) {
+                Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable(enabled = !quick) { onRank() }.alpha(if (quick) 0.4f else 1f), Alignment.Center) {
                     Text("우선순위\n가르기", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
                 }
             }
@@ -477,7 +494,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else "AI 분석")
-                else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
+                else if (flash.isNotEmpty()) flash else if (quick) "나중으로 보낼 일을 고르세요" else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
                 color = pal.sub, fontSize = 10.sp,
             )
             Row {
@@ -490,72 +507,25 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
             }
         }
         if (page < 2) {
-            Box(btn.align(Alignment.CenterEnd).padding(end = 0.dp).offset(x = (-8).dp).clip(RoundedCornerShape(6.dp)).background(pal.ink).clickable { onAdd() }, Alignment.Center) {
-                Text("할 일\n추가", color = pal.bg, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+            Row(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (page == 0) Box(
+                    btn.clip(RoundedCornerShape(6.dp)).then(if (quick) Modifier.background(pal.ink) else Modifier.border(1.dp, pal.rule, RoundedCornerShape(6.dp))).clickable { onQuick() }, Alignment.Center,
+                ) {
+                    Text(if (quick) "취소" else "빠른\n정리", color = if (quick) pal.bg else pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+                }
+                Box(btn.clip(RoundedCornerShape(6.dp)).background(pal.ink).clickable { onAdd() }, Alignment.Center) {
+                    Text(if (quick) (if (selN > 0) "완료\n${selN}개" else "완료") else "할 일\n추가", color = pal.bg, fontSize = 10.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun Placeholder(msg: String) {
-    val pal = LocalPal.current
-    Box(Modifier.fillMaxSize(), Alignment.Center) { Text(msg, color = pal.sub, fontSize = 14.sp) }
-}
-
-/** 눌러서 쓰면 5줄 높이로 커지는 입력칸. Enter를 누르면 onSubmit */
-/** 입력창에서 저장하지 않고 벗어났을 때 저장할지 묻는다 */
-@Composable
-private fun SaveAsk(text: String, onSave: () -> Unit, onDiscard: () -> Unit, onBack: () -> Unit) {
-    val short = text.replace(Regex("\\s+"), " ").trim().let { if (it.length > 24) it.take(24) + "…" else it }
-    AlertDialog(
-        onDismissRequest = onBack,
-        title = { Text("저장할까요?") },
-        text = { Text("‘$short’ 내용을 저장하지 않고 벗어났어요.") },
-        confirmButton = {
-            Row {
-                TextButton(onClick = onBack) { Text("계속 쓰기") }
-                TextButton(onClick = onDiscard) { Text("저장 안 함") }
-                TextButton(onClick = onSave) { Text("저장") }
-            }
-        },
-    )
-}
-
-@Composable
-private fun NoteInput(
-    value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
-    modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {}, fit: Boolean = false,
-    enterSubmits: Boolean = false, focusRequester: FocusRequester? = null,
-) {
-    val pal = LocalPal.current
-    var focused by remember { mutableStateOf(false) }
-    var lines by remember { mutableIntStateOf(1) }
-    // fit: 입력을 마친 뒤에도 여러 줄을 노트줄 배수 높이로 전부 보여준다
-    val multi = fit && !focused && lines > 1
-    val fitRows = kotlin.math.ceil((lines * 24 + 26) / 50.0).toInt().coerceAtLeast(1)
-    BasicTextField(
-        value = value,
-        onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
-        modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW)
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
-        textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
-        cursorBrush = SolidColor(pal.pen),
-        visualTransformation = CharBreak,
-        onTextLayout = { lines = it.lineCount },
-        decorationBox = { inner ->
-            Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp * FontPref.scale else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
-                if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
-                inner()
-            }
-        },
-    )
-}
-
-@Composable
 fun ListPage(
     bucket: String, filter: String, tick: Int, open: SnapshotStateMap<String, Boolean>,
     onChange: () -> Unit, onDelete: (List<Item>) -> Unit, addReq: Int = 0,
+    quick: Boolean = false, sel: SnapshotStateMap<String, Boolean>? = null,
 ) {
     val db = Db.get(LocalContext.current)
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
@@ -585,19 +555,20 @@ fun ListPage(
     }
 
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
-        if (topAdd) item(key = "topadd") { AddRow(bucket, { onChange(); }, addReq, true) { topAdd = false } }
+        if (topAdd && !quick) item(key = "topadd") { AddRow(bucket, { onChange(); }, addReq, true) { topAdd = false } }
         if (order.isEmpty()) item { Box(Modifier.fillMaxWidth().height(ROW).ruled(), Alignment.CenterStart) { Text(if (filter == "all" || filter == "left") "비어 있어요" else "해당하는 일이 없어요", color = LocalPal.current.sub, fontSize = 13.sp, modifier = Modifier.padding(start = MARGIN + 12.dp)) } }
         items(order, key = { it.id }) { r ->
             val dragging = dragId == r.id
             Box(if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragDy } else Modifier.animateItem()) {
                 ItemBlock(
                     r, bucket, open[r.id] == true, dragging,
+                    quick = quick, selected = sel?.get(r.id) == true, onSelect = { if (sel != null) { if (sel[r.id] == true) sel.remove(r.id) else sel[r.id] = true } },
                     onToggle = { open[r.id] = !(open[r.id] ?: false) }, onChange = onChange, onDelete = { onDelete(listOf(r)) },
                     onDragStart = { dragId = r.id; dragDy = 0f }, onDrag = { dragMove(it) }, onDragEnd = { dragEnd(true) }, onDragCancel = { dragEnd(false) },
                 )
             }
         }
-        item { AddRow(bucket, onChange) }
+        if (!quick) item { AddRow(bucket, onChange) }
         items(10) { Box(Modifier.fillMaxWidth().height(ROW).ruled()) }
     }
 }
@@ -607,6 +578,7 @@ private fun ItemBlock(
     item: Item, bucket: String, open: Boolean, dragging: Boolean,
     onToggle: () -> Unit, onChange: () -> Unit, onDelete: () -> Unit,
     onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDragCancel: () -> Unit,
+    quick: Boolean = false, selected: Boolean = false, onSelect: () -> Unit = {},
 ) {
     val db = Db.get(LocalContext.current)
     val pal = LocalPal.current
@@ -658,7 +630,13 @@ private fun ItemBlock(
                 "${item.stepsDone}/${item.stepsTotal}", color = pal.ink, fontSize = 10.sp,
                 modifier = Modifier.padding(end = 2.dp).border(1.dp, pal.rule, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
             )
-            Box(Modifier.size(width = 44.dp, height = ROW).clickable { editing = true }, Alignment.Center) {
+            if (quick) {
+                Box(Modifier.size(width = 44.dp, height = ROW).clickable { onSelect() }, Alignment.Center) {
+                    Box(Modifier.size(26.dp).border(2.dp, if (selected) pal.margin else pal.pen, RoundedCornerShape(3.dp)), Alignment.Center) {
+                        if (selected) ArrowIcon(true, pal.margin)
+                    }
+                }
+            } else Box(Modifier.size(width = 44.dp, height = ROW).clickable { editing = true }, Alignment.Center) {
                 Text("•••", color = pal.sub, fontSize = 12.sp, letterSpacing = 0.sp)
             }
         }
