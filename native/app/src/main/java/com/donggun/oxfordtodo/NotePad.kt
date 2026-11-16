@@ -522,6 +522,61 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
 }
 
 @Composable
+private fun Placeholder(msg: String) {
+    val pal = LocalPal.current
+    Box(Modifier.fillMaxSize(), Alignment.Center) { Text(msg, color = pal.sub, fontSize = 14.sp) }
+}
+
+/** 눌러서 쓰면 5줄 높이로 커지는 입력칸. Enter를 누르면 onSubmit */
+/** 입력창에서 저장하지 않고 벗어났을 때 저장할지 묻는다 */
+@Composable
+private fun SaveAsk(text: String, onSave: () -> Unit, onDiscard: () -> Unit, onBack: () -> Unit) {
+    val short = text.replace(Regex("\\s+"), " ").trim().let { if (it.length > 24) it.take(24) + "…" else it }
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text("저장할까요?") },
+        text = { Text("‘$short’ 내용을 저장하지 않고 벗어났어요.") },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onBack) { Text("계속 쓰기") }
+                TextButton(onClick = onDiscard) { Text("저장 안 함") }
+                TextButton(onClick = onSave) { Text("저장") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun NoteInput(
+    value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
+    modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {}, fit: Boolean = false,
+    enterSubmits: Boolean = false, focusRequester: FocusRequester? = null,
+) {
+    val pal = LocalPal.current
+    var focused by remember { mutableStateOf(false) }
+    var lines by remember { mutableIntStateOf(1) }
+    // fit: 입력을 마친 뒤에도 여러 줄을 노트줄 배수 높이로 전부 보여준다
+    val multi = fit && !focused && lines > 1
+    val fitRows = kotlin.math.ceil((lines * 24 + 26) / 50.0).toInt().coerceAtLeast(1)
+    BasicTextField(
+        value = value,
+        onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
+        modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
+        textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
+        cursorBrush = SolidColor(pal.pen),
+        visualTransformation = CharBreak,
+        onTextLayout = { lines = it.lineCount },
+        decorationBox = { inner ->
+            Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp * FontPref.scale else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
+                if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
+                inner()
+            }
+        },
+    )
+}
+
+@Composable
 fun ListPage(
     bucket: String, filter: String, tick: Int, open: SnapshotStateMap<String, Boolean>,
     onChange: () -> Unit, onDelete: (List<Item>) -> Unit, addReq: Int = 0,
