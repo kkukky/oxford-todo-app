@@ -167,6 +167,9 @@ private fun Modifier.ruled(rows: Int = 1): Modifier {
 private class DeleteReq(val ids: List<String>, val title: String, val stepCount: Int)
 
 @OptIn(ExperimentalLayoutApi::class)
+/** 잠금화면 위 메모의 마지막 입력 시각 */
+object Idle { @Volatile var last = android.os.SystemClock.elapsedRealtime(); fun poke() { last = android.os.SystemClock.elapsedRealtime() } }
+
 @Composable
 fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
     val ctx = LocalContext.current
@@ -178,6 +181,17 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var addReq by remember { mutableStateOf("" to 0) }
     var showRank by remember { mutableStateOf(false) }
     var quick by remember { mutableStateOf(false) }
+    var foldLevel by remember { mutableIntStateOf(0) }
+    if (lock) {
+        val lockSec = remember { (db.getSetting("lock_sec", "30").toIntOrNull() ?: 30).coerceIn(5, 600) }
+        LaunchedEffect(Unit) {
+            Idle.poke()
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                if (android.os.SystemClock.elapsedRealtime() - Idle.last >= lockSec * 1000L) { onClose(); break }
+            }
+        }
+    }
     var quickPage by remember { mutableIntStateOf(0) }
     val quickSel = remember { mutableStateMapOf<String, Boolean>() }
     var flash by remember { mutableStateOf("") }
@@ -233,7 +247,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
         Column(
             Modifier.fillMaxSize().background(pal.bg).imePadding()
                 .onFocusChanged { anyFocus = it.hasFocus }
-                .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); touched = true } } },
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); touched = true; Idle.poke() } } },
         ) {
             Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { fm.clearFocus(); showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { fm.clearFocus(); searching = !searching; showSettings = false }
             val page = pager.currentPage
@@ -252,7 +266,12 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
             } else {
                 HeadRow(
                     title = if (showSettings) "설정" else titles[page], showFilters = listPage, filter = filter, onFilter = { filter = it },
-                    showFold = listPage, anyOpen = anyOpen, onFold = { foldList.forEach { open[it.id] = !anyOpen } },
+                    showFold = listPage, foldLevel = foldLevel,
+                    onFold = {
+                        foldLevel = (foldLevel + 1) % 4
+                        if (foldLevel == 1) (db.list("now") + db.list("later")).forEach { open[it.id] = true }
+                        else if (foldLevel >= 2) (db.list("now") + db.list("later")).forEach { open[it.id] = false }
+                    },
                 )
                 if (showSettings) {
                     Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navigationBarsPadding()) { SettingsPane { tickLocal++ } }
@@ -260,8 +279,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel)
-                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel)
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 3)
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 3)
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                             }
@@ -451,7 +470,7 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
 @Composable
 private fun HeadRow(
     title: String, showFilters: Boolean, filter: String, onFilter: (String) -> Unit,
-    showFold: Boolean, anyOpen: Boolean, onFold: () -> Unit,
+    showFold: Boolean, foldLevel: Int, onFold: () -> Unit,
 ) {
     val pal = LocalPal.current
     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -472,7 +491,8 @@ private fun HeadRow(
             Box(
                 Modifier.size(34.dp).clip(CircleShape).border(1.2.dp, pal.rule, CircleShape).clickable { onFold() },
                 Alignment.Center,
-            ) { ChevronsIcon(up = anyOpen, color = pal.ink) }
+            ) { ChevronsIcon(up = foldLevel == 1 || foldLevel == 2, color = pal.ink)
+                if (foldLevel >= 2) Text("$foldLevel", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp).clip(CircleShape).background(pal.urgentBg).padding(horizontal = 4.dp)) }
         }
     }
 }
@@ -561,7 +581,7 @@ private fun NoteInput(
     val fitRows = kotlin.math.ceil((lines * 24 + 26) / 50.0).toInt().coerceAtLeast(1)
     BasicTextField(
         value = value,
-        onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else onValue(v.take(maxLen)) },
+        onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else { Idle.poke(); onValue(v.take(maxLen)) } },
         modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
@@ -581,7 +601,7 @@ private fun NoteInput(
 fun ListPage(
     bucket: String, filter: String, tick: Int, open: SnapshotStateMap<String, Boolean>,
     onChange: () -> Unit, onDelete: (List<Item>) -> Unit, addReq: Int = 0,
-    quick: Boolean = false, sel: SnapshotStateMap<String, Boolean>? = null,
+    quick: Boolean = false, sel: SnapshotStateMap<String, Boolean>? = null, oneLine: Boolean = false,
 ) {
     val db = Db.get(LocalContext.current)
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
@@ -618,7 +638,7 @@ fun ListPage(
             Box(if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragDy } else Modifier.animateItem()) {
                 ItemBlock(
                     r, bucket, open[r.id] == true, dragging,
-                    quick = quick, selected = sel?.get(r.id) == true, onSelect = { if (sel != null) { if (sel[r.id] == true) sel.remove(r.id) else sel[r.id] = true } },
+                    quick = quick, oneLine = oneLine, selected = sel?.get(r.id) == true, onSelect = { if (sel != null) { if (sel[r.id] == true) sel.remove(r.id) else sel[r.id] = true } },
                     onToggle = { open[r.id] = !(open[r.id] ?: false) }, onChange = onChange, onDelete = { onDelete(listOf(r)) },
                     onDragStart = { dragId = r.id; dragDy = 0f }, onDrag = { dragMove(it) }, onDragEnd = { dragEnd(true) }, onDragCancel = { dragEnd(false) },
                 )
@@ -634,7 +654,7 @@ private fun ItemBlock(
     item: Item, bucket: String, open: Boolean, dragging: Boolean,
     onToggle: () -> Unit, onChange: () -> Unit, onDelete: () -> Unit,
     onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDragCancel: () -> Unit,
-    quick: Boolean = false, selected: Boolean = false, onSelect: () -> Unit = {},
+    quick: Boolean = false, selected: Boolean = false, onSelect: () -> Unit = {}, oneLine: Boolean = false,
 ) {
     val db = Db.get(LocalContext.current)
     val pal = LocalPal.current
@@ -643,7 +663,7 @@ private fun ItemBlock(
     var lines by remember(item.id, item.title) { mutableIntStateOf(1) }
     val dStart by rememberUpdatedState(onDragStart); val dMove by rememberUpdatedState(onDrag)
     val dEnd by rememberUpdatedState(onDragEnd); val dCancel by rememberUpdatedState(onDragCancel)
-    val rows = maxOf(1, Math.ceil(((lines * 24 + 6) / 50.0)).toInt())
+    val rows = if (oneLine) 1 else maxOf(1, Math.ceil(((lines * 24 + 6) / 50.0)).toInt())
 
     Column(Modifier.fillMaxWidth().then(if (dragging) Modifier.background(pal.bg) else Modifier)) {
         if (editing) TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
@@ -681,6 +701,7 @@ private fun ItemBlock(
                 fontWeight = if (item.urgent && !item.done) FontWeight.Bold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 onTextLayout = { lines = it.lineCount }, modifier = Modifier.weight(1f).padding(end = 4.dp),
+                maxLines = if (oneLine) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
             )
             if (item.stepsTotal > 0) Text(
                 "${item.stepsDone}/${item.stepsTotal}", color = pal.ink, fontSize = 10.sp,
@@ -734,7 +755,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
             }
             BasicTextField(
                 value = tf,
-                onValueChange = { v -> tf = v.copy(text = v.text.take(1000)) },
+                onValueChange = { v -> Idle.poke(); tf = v.copy(text = v.text.take(1000)) },
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp).focusRequester(fr),
                 textStyle = TextStyle(color = pal.pen, fontSize = 22.sp, fontFamily = Gaegu, lineHeight = 33.sp),
                 cursorBrush = SolidColor(pal.pen),
@@ -910,8 +931,10 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
         // 절차 (길게 눌러 순서 변경)
         stepList.forEachIndexed { i, s ->
             key(s.id) {
+                var sLines by remember(s.id, s.title) { mutableIntStateOf(1) }
+                val sRows = maxOf(1, Math.ceil((sLines * 22 + 6) / 50.0).toInt())
                 Row(
-                    Modifier.fillMaxWidth().height(ROW)
+                    Modifier.fillMaxWidth().height(ROW * sRows)
                         .then(if (sDrag == s.id) Modifier.zIndex(1f).graphicsLayer { translationY = sDy }.background(pal.panel) else Modifier)
                         .ruled()
                         .pointerInput(s.id) {
@@ -939,7 +962,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
                     Text("${i + 1}", color = if (s.id == nextId) pal.accent else pal.sub, fontSize = 11.sp, modifier = Modifier.width(16.dp))
                     Text(
                         tagged(s.title, tagColor()), color = if (s.done) pal.sub else pal.pen, fontSize = 16.sp, fontFamily = Gaegu,
-                        fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, lineHeight = 22.sp, onTextLayout = { sLines = it.lineCount },
                         textDecoration = if (s.done) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f, fill = false),
                     )
                     if (s.id == nextId) Text(
