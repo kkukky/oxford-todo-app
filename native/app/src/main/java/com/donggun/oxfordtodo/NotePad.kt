@@ -882,6 +882,11 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
     var v by remember(item.id) { mutableIntStateOf(0) }
     var logOpen by remember(item.id) { mutableStateOf(false) }
     var newStep by remember(item.id) { mutableStateOf("") }
+    var stepFocused by remember(item.id) { mutableStateOf(false) }
+    var askStep by remember(item.id) { mutableStateOf(false) }
+    var stepRefocus by remember(item.id) { mutableIntStateOf(0) }
+    val stepFr = remember(item.id) { FocusRequester() }
+    LaunchedEffect(stepRefocus) { if (stepRefocus > 0) { kotlinx.coroutines.delay(150); stepFr.requestFocus() } }
     val steps = remember(item.id, v) { db.steps(item.id) }
     val logs = remember(item.id, v, item.done) { db.logs(item.id).reversed() }
     val focus = LocalFocusManager.current
@@ -980,8 +985,11 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
             NoteInput(
                 newStep, { newStep = it }, if (steps.isEmpty()) "첫 번째 절차를 적어 보세요" else "다음 절차 적고 Enter", 1000,
                 { db.addStep(item.id, newStep); newStep = ""; refresh() }, Modifier.weight(1f), 16f, enterSubmits = true,
+                onFocus = { f -> if (!f && stepFocused && win.isWindowFocused && newStep.isNotBlank() && !askStep) askStep = true; stepFocused = f },
+                focusRequester = stepFr,
             )
         }
+        if (askStep) SaveAsk(newStep, onSave = { askStep = false; db.addStep(item.id, newStep); newStep = ""; refresh() }, onDiscard = { askStep = false; newStep = "" }, onBack = { askStep = false; stepRefocus++ })
         Row(Modifier.fillMaxWidth().height(ROW).ruled(), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(MARGIN + 10.dp))
             Text(
