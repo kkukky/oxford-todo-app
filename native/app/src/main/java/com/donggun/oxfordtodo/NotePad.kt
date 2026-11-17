@@ -279,8 +279,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 3)
-                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 3)
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                             }
@@ -602,12 +602,13 @@ fun ListPage(
     bucket: String, filter: String, tick: Int, open: SnapshotStateMap<String, Boolean>,
     onChange: () -> Unit, onDelete: (List<Item>) -> Unit, addReq: Int = 0,
     quick: Boolean = false, sel: SnapshotStateMap<String, Boolean>? = null, oneLine: Boolean = false,
+    onAddHandled: () -> Unit = {},
 ) {
     val db = Db.get(LocalContext.current)
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
     val listState = rememberLazyListState()
     var topAdd by remember { mutableStateOf(false) }
-    LaunchedEffect(addReq) { if (addReq > 0) { topAdd = true; listState.animateScrollToItem(0) } }
+    LaunchedEffect(addReq) { if (addReq > 0) { topAdd = true; onAddHandled(); listState.animateScrollToItem(0) } }
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
 
@@ -1032,7 +1033,8 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0, top: B
     var refocus by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
     val win = androidx.compose.ui.platform.LocalWindowInfo.current
-    LaunchedEffect(addReq) { if (addReq > 0) { kotlinx.coroutines.delay(120); fr.requestFocus() } }
+    // 맨 위 입력줄은 '할 일 추가'를 눌러 새로 생길 때 한 번만 포커스를 받는다(페이지가 다시 그려질 때마다 열리지 않게)
+    LaunchedEffect(Unit) { if (top) { kotlinx.coroutines.delay(120); fr.requestFocus() } }
     LaunchedEffect(refocus) { if (refocus > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
     fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent, top); t = ""; star = false; urgent = false; onChange(); onDone() } }
     Column(Modifier.fillMaxWidth()) {
