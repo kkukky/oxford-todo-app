@@ -166,10 +166,10 @@ private fun Modifier.ruled(rows: Int = 1): Modifier {
 
 private class DeleteReq(val ids: List<String>, val title: String, val stepCount: Int)
 
-@OptIn(ExperimentalLayoutApi::class)
 /** 잠금화면 위 메모의 마지막 입력 시각 */
 object Idle { @Volatile var last = android.os.SystemClock.elapsedRealtime(); fun poke() { last = android.os.SystemClock.elapsedRealtime() } }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () -> Unit = {}) {
     val ctx = LocalContext.current
