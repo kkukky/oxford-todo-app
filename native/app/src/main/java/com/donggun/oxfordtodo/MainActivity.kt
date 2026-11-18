@@ -91,6 +91,10 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         HorizontalDivider()
         var aiKey by remember { mutableStateOf(Ai.key(db)) }
         var aiKeyIn by remember { mutableStateOf("") }
+        var keyMsg by remember { mutableStateOf<String?>(null) }
+        var keyOk by remember { mutableStateOf(false) }
+        var keyChecking by remember { mutableStateOf(false) }
+        val keyScope = androidx.compose.runtime.rememberCoroutineScope()
         var aiLen by remember { mutableStateOf(db.getSetting("ai_len", "300")) }
         var aiLimit by remember { mutableStateOf(db.getSetting("ai_limit", "10")) }
         var aiModel by remember { mutableStateOf(db.getSetting("ai_model", "claude-sonnet-5-5")) }
@@ -105,9 +109,19 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
             visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val k = aiKeyIn.trim(); if (k.isNotEmpty()) { db.setSetting("ai_key", k); aiKey = k; aiKeyIn = "" } }, enabled = aiKeyIn.isNotBlank()) { Text("키 저장") }
-            OutlinedButton(onClick = { db.setSetting("ai_key", ""); aiKey = "" }, enabled = aiKey.isNotBlank()) { Text("키 지우기") }
+            Button(onClick = {
+                val k = aiKeyIn.trim()
+                if (k.isNotEmpty()) { db.setSetting("ai_key", k); aiKey = k; aiKeyIn = ""; keyMsg = null; keyChecking = true
+                    keyScope.launch { val r = Ai.verify(k); keyOk = r.first; keyMsg = r.second; keyChecking = false } }
+            }, enabled = aiKeyIn.isNotBlank() && !keyChecking) { Text("키 저장") }
+            OutlinedButton(onClick = {
+                keyMsg = null; keyChecking = true
+                keyScope.launch { val r = Ai.verify(aiKey); keyOk = r.first; keyMsg = r.second; keyChecking = false }
+            }, enabled = aiKey.isNotBlank() && !keyChecking) { Text("키 확인") }
+            OutlinedButton(onClick = { db.setSetting("ai_key", ""); aiKey = ""; keyMsg = null }, enabled = aiKey.isNotBlank()) { Text("키 지우기") }
         }
+        if (keyChecking) Text("키를 확인하는 중…", style = MaterialTheme.typography.bodySmall)
+        keyMsg?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = if (keyOk) androidx.compose.ui.graphics.Color(0xFF2E7D32) else MaterialTheme.colorScheme.error) }
         Text("응답 길이 한도 (글자)", style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("300" to "300자", "600" to "600자", "1000" to "1000자").forEach { (v, l) ->

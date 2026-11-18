@@ -50,6 +50,30 @@ object Ai {
         return sb.toString().trim()
     }
 
+    /** 키가 맞는지 확인한다. 모델 목록 조회라서 글자(토큰) 요금이 나가지 않고 하루 호출 한도에도 세지 않는다. 반환: (맞는지, 보여줄 메시지) */
+    suspend fun verify(k: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val c = (URL("https://api.anthropic.com/v1/models?limit=1").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"; connectTimeout = 15000; readTimeout = 20000
+                setRequestProperty("x-api-key", k.trim()); setRequestProperty("anthropic-version", "2023-06-01")
+            }
+            val code = c.responseCode
+            when (code) {
+                in 200..299 -> true to "✓ 키가 확인됐어요. 이제 AI 도우미를 쓸 수 있어요"
+                401 -> false to "✕ 키가 올바르지 않아요. 다시 확인해서 붙여넣어 주세요"
+                403 -> false to "✕ 이 키로는 사용할 수 없어요 (권한 없음)"
+                429 -> false to "요청이 많아 확인하지 못했어요. 잠시 뒤에 다시 눌러 주세요"
+                else -> false to "확인하지 못했어요 (오류 $code)"
+            }
+        } catch (e: java.net.UnknownHostException) {
+            false to "인터넷에 연결되어 있지 않아 확인하지 못했어요"
+        } catch (e: java.net.SocketTimeoutException) {
+            false to "응답이 너무 늦어 확인하지 못했어요. 다시 눌러 주세요"
+        } catch (e: Exception) {
+            false to "확인하지 못했어요: ${cut(e.message ?: "", 60)}"
+        }
+    }
+
     /** 성공하면 글, 실패하면 사용자에게 보일 한국어 오류 */
     suspend fun call(db: Db, system: String, messages: List<Msg>, maxTokens: Int, hardCap: Int): Result<String> = withContext(Dispatchers.IO) {
         val k = key(db)
