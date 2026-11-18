@@ -195,6 +195,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var filter by remember { mutableStateOf("all") }
     var tickLocal by remember { mutableIntStateOf(0) }
     var addReq by remember { mutableStateOf("" to 0) }
+    var newSec by remember { mutableStateOf<String?>(null) }
     var showRank by remember { mutableStateOf(false) }
     var quick by remember { mutableStateOf(false) }
     var foldLevel by remember { mutableIntStateOf(0) }
@@ -316,12 +317,13 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                             quick = false; quickSel.clear()
                             if (ids.isNotEmpty()) flash = if (quickPage == 1) "${ids.size}개를 지금 할 일로 올렸어요" else "${ids.size}개를 나중 할 일로 옮겼어요"
                             tickLocal++
-                        } else addReq = (if (page == 1) "later" else "now") to (addReq.second + 1)
+                        } else { fm.clearFocus(); newSec = if (page == 1) "later" else "now" }
                     }
                 }
             }
         }
         if (showRank) RankDialog(db, { showRank = false }) { showRank = false; tickLocal++ }
+        newSec?.let { sec -> NewEditor(sec, onDone = { newSec = null; tickLocal++ }) }
         pendingDelete?.let { req ->
             val close = { pendingDelete = null }
             AlertDialog(
@@ -748,6 +750,62 @@ private fun ItemBlock(
         }
         if (open) Panel(item, bucket, onChange, onDelete)
     }
+}
+
+/** '할 일 추가'를 누르면 열리는 전체 화면 새 글 작성창 */
+@Composable
+private fun NewEditor(bucket: String, onDone: () -> Unit) {
+    val db = Db.get(LocalContext.current)
+    val pal = LocalPal.current
+    var tf by remember { mutableStateOf(TextFieldValue("")) }
+    var star by remember { mutableStateOf(false) }
+    var urgent by remember { mutableStateOf(false) }
+    val fr = remember { FocusRequester() }
+    var finished by remember { mutableStateOf(false) }
+    var ask by remember { mutableStateOf(false) }
+    var back by remember { mutableIntStateOf(0) }
+    LaunchedEffect(back) { if (back > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(100); fr.requestFocus() }
+    fun finish() { if (finished) return; val v = tf.text.trim(); if (v.isEmpty()) return; finished = true; db.add(v, bucket, star, urgent, true); onDone() }
+    fun close() { if (finished) return; if (tf.text.isBlank()) { finished = true; onDone() } else ask = true }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { close() },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val dd = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
+            Column(Modifier.fillMaxSize().background(pal.bg).imePadding().navSafe()) {
+                Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clickable { close() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
+                    Text(if (bucket == "now") "새 지금 할 일" else "새 나중 할 일", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(48.dp))
+                }
+                Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    BasicTextField(
+                        value = tf,
+                        onValueChange = { v -> Idle.poke(); tf = v.copy(text = v.text.take(1000)) },
+                        modifier = Modifier.fillMaxSize().focusRequester(fr),
+                        textStyle = TextStyle(color = pal.pen, fontSize = 22.sp, fontFamily = Gaegu, lineHeight = 33.sp),
+                        cursorBrush = SolidColor(pal.pen),
+                        visualTransformation = CharBreak,
+                    )
+                    if (tf.text.isEmpty()) Text(if (bucket == "now") "지금 할 일을 적어요" else "나중에 할 일을 적어요", color = pal.sub, fontSize = 22.sp, fontFamily = Gaegu, lineHeight = 33.sp)
+                }
+                Row(
+                    Modifier.fillMaxWidth().drawBehind { drawLine(pal.rule, Offset(0f, 0f), Offset(size.width, 0f), 1f) }.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
+                ) {
+                    Text("${tf.text.length} / 1000", color = if (tf.text.length >= 1000) pal.urgentBg else pal.sub, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 8.dp))
+                    IconBtn("!", urgent) { urgent = !urgent }
+                    IconBtn(if (star) "★" else "☆", star) { star = !star }
+                    Box(Modifier.size(44.dp).clickable { finish() }, Alignment.Center) {
+                        Text("✓", color = pal.pen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+    if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
 }
 
 /** ⋯ 를 누르면 열리는 제목 편집칸: 4줄 높이, 1000자, 커서는 맨 뒤(스페이스 한 칸 뒤) */
