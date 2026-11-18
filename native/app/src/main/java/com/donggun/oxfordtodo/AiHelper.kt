@@ -1,6 +1,5 @@
 package com.donggun.oxfordtodo
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -106,7 +105,7 @@ internal fun AiHelper(item: Item, desc: String, onAddSteps: () -> Unit, onAppend
             val r = Ai.call(db, sys, msgs, (cap * 1.6).toInt().coerceIn(200, 2000), cap + 60)
             usedTick++
             r.onSuccess { thread.add(AiMsg("ai", "AI", it)); phase = "ready" }
-                .onFailure { err = it.message ?: "실패"; phase = if (thread.isEmpty()) "confirm" else "ready" }
+                .onFailure { err = it.message ?: "실패"; if (thread.none { m -> m.who == "ai" }) { on = false; phase = "off"; thread.clear() } else phase = "ready" }
         }
     }
 
@@ -119,17 +118,28 @@ internal fun AiHelper(item: Item, desc: String, onAddSteps: () -> Unit, onAppend
         Switch(
             checked = on, onCheckedChange = { v ->
                 if (v) {
-                    if (!Ai.hasKey(db)) { Toast.makeText(ctx, "설정 → AI 도우미에서 API 키를 먼저 입력해 주세요", Toast.LENGTH_LONG).show() }
+                    if (!Ai.hasKey(db)) { err = "API 키가 없어요 (설정 → AI 도우미)"; on = false }
                     else { on = true; analyze() }
                 } else { on = false; phase = "off"; thread.clear(); err = "" }
             },
             colors = SwitchDefaults.colors(checkedTrackColor = pal.ink, checkedThumbColor = pal.bg),
         )
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        // 오른쪽 상태 메시지: 오류가 있으면 빨간 글씨(자동으로 꺼진 뒤에도 남음), 작동 중이면 진행 중 메시지
+        val status = when {
+            err.isNotEmpty() -> "✕ $err"
+            on -> when (phase) {
+                "guessing" -> "● 진행 중 · 내용을 분석하는 중"
+                "thinking" -> "● 진행 중 · AI 응답을 받는 중"
+                "confirm" -> "● 진행 중 · 내용 확인을 기다려요"
+                else -> "● 진행 중 · 이어서 대화할 수 있어요"
+            }
+            else -> ""
+        }
+        Text(status, color = if (err.isNotEmpty()) pal.urgentBg else pal.sub, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2, modifier = Modifier.weight(1f).padding(end = 8.dp))
         if (on && phase != "guessing") Box(Modifier.padding(end = 8.dp)) { AxBtn("다시 분석", enabled = phase != "thinking") { analyze() } }
     }
     if (!on) return
-    if (err.isNotEmpty()) AxActs { Text(err, color = pal.urgentBg, fontSize = 12.sp) }
     when (phase) {
         "guessing" -> AxMemo("AI", "내용을 분석하는 중…", load = true)
         "confirm" -> {
