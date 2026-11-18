@@ -130,6 +130,7 @@ internal val ROW: Dp get() = 50.dp * FontPref.scale
 internal val MARGIN = 50.dp
 
 /** 하단 시스템 영역(3버튼 내비게이션·제스처 영역)만큼 비워서 뒤로가기/홈 버튼과 앱 버튼이 겹치지 않게 한다 */
+@androidx.compose.runtime.Composable
 internal fun Modifier.navSafe(): Modifier = this.windowInsetsPadding(
     WindowInsets.navigationBars.union(WindowInsets.tappableElement).union(WindowInsets.mandatorySystemGestures)
 )
@@ -516,7 +517,10 @@ private fun HeadRow(
 private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, quickPage: Int, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
     val btn = Modifier.size(width = 62.dp, height = 44.dp)
-    Box(Modifier.fillMaxWidth().background(pal.panel).navSafe().height(66.dp)) {
+    val navB = with(LocalDensity.current) {
+        maxOf(WindowInsets.navigationBars.getBottom(this), WindowInsets.tappableElement.getBottom(this), WindowInsets.mandatorySystemGestures.getBottom(this)).toDp()
+    }
+    Box(Modifier.fillMaxWidth().background(pal.panel).height(66.dp + navB).padding(bottom = navB)) {
         if (page < 2) {
             Row(Modifier.align(Alignment.CenterStart).padding(start = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable(enabled = !quick) { onClear() }.alpha(if (quick) 0.4f else 1f), Alignment.Center) {
