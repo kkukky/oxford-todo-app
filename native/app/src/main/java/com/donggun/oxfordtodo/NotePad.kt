@@ -126,8 +126,18 @@ private val CharBreak = androidx.compose.ui.text.input.VisualTransformation { t 
 }
 private val INPUT_LH = 24.sp
 @Composable private fun tagColor() = if (LocalPal.current === DarkPal) Color(0xFF6FC2BD) else TAG_COLOR
-private val ROW: Dp get() = 50.dp * FontPref.scale
-private val MARGIN = 50.dp
+internal val ROW: Dp get() = 50.dp * FontPref.scale
+internal val MARGIN = 50.dp
+
+/** 글자 높이(px)로 노트줄 몇 칸이 필요한지 계산 — 글자 크기·시스템 글자 배율과 상관없이 맞는다 */
+@Composable
+private fun rowsFor(textHeightPx: Int, padEach: Dp): Int {
+    val d = LocalDensity.current
+    val rowPx = with(d) { ROW.toPx() }
+    val padPx = with(d) { padEach.toPx() }
+    if (textHeightPx <= 0 || rowPx <= 0f) return 1
+    return kotlin.math.ceil((textHeightPx + 2 * padPx) / rowPx - 0.001).toInt().coerceAtLeast(1)
+}
 private val TS = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA)
 private fun fmt(ts: Long) = TS.format(Date(ts))
 private val LI = mapOf("start" to "●", "memo" to "✎", "step" to "✓", "undo" to "↺", "done" to "✔", "reopen" to "↺", "move" to "⇄")
@@ -151,7 +161,7 @@ fun visibleItems(db: Db, bucket: String, filter: String): List<Item> {
 
 /** 노트지 한 줄: 아래 괘선(rows>1이면 줄마다) + 왼쪽 빨간 이중 여백선 */
 @Composable
-private fun Modifier.ruled(rows: Int = 1): Modifier {
+internal fun Modifier.ruled(rows: Int = 1): Modifier {
     val p = LocalPal.current
     return this.drawBehind {
         val m = MARGIN.toPx()
@@ -568,26 +578,27 @@ private fun SaveAsk(text: String, onSave: () -> Unit, onDiscard: () -> Unit, onB
 }
 
 @Composable
-private fun NoteInput(
+internal fun NoteInput(
     value: String, onValue: (String) -> Unit, hint: String, maxLen: Int, onSubmit: () -> Unit,
     modifier: Modifier = Modifier, fontSize: Float = 17f, onFocus: (Boolean) -> Unit = {}, fit: Boolean = false,
-    enterSubmits: Boolean = false, focusRequester: FocusRequester? = null,
+    enterSubmits: Boolean = false, focusRequester: FocusRequester? = null, readOnly: Boolean = false,
 ) {
     val pal = LocalPal.current
     var focused by remember { mutableStateOf(false) }
     var lines by remember { mutableIntStateOf(1) }
+    var textH by remember { mutableIntStateOf(0) }
     // fit: 입력을 마친 뒤에도 여러 줄을 노트줄 배수 높이로 전부 보여준다
     val multi = fit && !focused && lines > 1
-    val fitRows = kotlin.math.ceil((lines * 24 + 26) / 50.0).toInt().coerceAtLeast(1)
+    val fitRows = rowsFor(textH, 13.dp)
     BasicTextField(
-        value = value,
+        value = value, readOnly = readOnly,
         onValueChange = { v -> if (enterSubmits && v.contains('\n')) onSubmit() else { Idle.poke(); onValue(v.take(maxLen)) } },
         modifier = modifier.height(if (focused) ROW * 5 else if (multi) ROW * fitRows else ROW)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         textStyle = TextStyle(color = pal.pen, fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH),
         cursorBrush = SolidColor(pal.pen),
         visualTransformation = CharBreak,
-        onTextLayout = { lines = it.lineCount },
+        onTextLayout = { lines = it.lineCount; textH = it.size.height },
         decorationBox = { inner ->
             Box(Modifier.fillMaxSize().padding(top = if (focused || multi) 13.dp * FontPref.scale else 0.dp), if (focused || multi) Alignment.TopStart else Alignment.CenterStart) {
                 if (value.isEmpty()) Text(hint, color = pal.sub.copy(alpha = 0.8f), fontSize = fontSize.sp, fontFamily = Gaegu, lineHeight = INPUT_LH)
@@ -662,9 +673,10 @@ private fun ItemBlock(
     val fm = LocalFocusManager.current
     var editing by remember(item.id) { mutableStateOf(false) }
     var lines by remember(item.id, item.title) { mutableIntStateOf(1) }
+    var titleH by remember(item.id, item.title) { mutableIntStateOf(0) }
     val dStart by rememberUpdatedState(onDragStart); val dMove by rememberUpdatedState(onDrag)
     val dEnd by rememberUpdatedState(onDragEnd); val dCancel by rememberUpdatedState(onDragCancel)
-    val rows = if (oneLine) 1 else maxOf(1, Math.ceil(((lines * 24 + 6) / 50.0)).toInt())
+    val rows = if (oneLine) 1 else rowsFor(titleH, 3.dp)
 
     Column(Modifier.fillMaxWidth().then(if (dragging) Modifier.background(pal.bg) else Modifier)) {
         if (editing) TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
@@ -701,7 +713,7 @@ private fun ItemBlock(
                 tagged(item.title, if (item.done) pal.sub else tagColor()), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
                 fontWeight = if (item.urgent && !item.done) FontWeight.Bold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
-                onTextLayout = { lines = it.lineCount }, modifier = Modifier.weight(1f).padding(end = 4.dp),
+                onTextLayout = { lines = it.lineCount; titleH = it.size.height }, modifier = Modifier.weight(1f).padding(end = 4.dp),
                 maxLines = if (oneLine) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
             )
             if (item.stepsTotal > 0) Text(
@@ -937,8 +949,8 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
         // 절차 (길게 눌러 순서 변경)
         stepList.forEachIndexed { i, s ->
             key(s.id) {
-                var sLines by remember(s.id, s.title) { mutableIntStateOf(1) }
-                val sRows = maxOf(1, Math.ceil((sLines * 22 + 6) / 50.0).toInt())
+                var sH by remember(s.id, s.title) { mutableIntStateOf(0) }
+                val sRows = rowsFor(sH, 3.dp)
                 Row(
                     Modifier.fillMaxWidth().height(ROW * sRows)
                         .then(if (sDrag == s.id) Modifier.zIndex(1f).graphicsLayer { translationY = sDy }.background(pal.panel) else Modifier)
@@ -968,15 +980,16 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
                     Text("${i + 1}", color = if (s.id == nextId) pal.accent else pal.sub, fontSize = 11.sp, modifier = Modifier.width(16.dp))
                     Text(
                         tagged(s.title, tagColor()), color = if (s.done) pal.sub else pal.pen, fontSize = 16.sp, fontFamily = Gaegu,
-                        fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, lineHeight = 22.sp, onTextLayout = { sLines = it.lineCount },
-                        textDecoration = if (s.done) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f, fill = false),
+                        fontWeight = if (s.id == nextId) FontWeight.Bold else FontWeight.Normal, lineHeight = 22.sp, onTextLayout = { sH = it.size.height },
+                        textDecoration = if (s.done) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f).padding(end = 4.dp),
                     )
                     if (s.id == nextId) Text(
                         "지금 이 단계", color = pal.ink, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFFF7E3A8)).padding(horizontal = 6.dp, vertical = 2.dp),
                     )
-                    Spacer(Modifier.weight(1f))
-                    Text("✕", color = pal.sub, fontSize = 14.sp, modifier = Modifier.clickable { db.deleteStep(s.id); refresh() }.padding(12.dp))
+                    Box(Modifier.width(44.dp * FontPref.scale).fillMaxHeight().clickable { db.deleteStep(s.id); refresh() }, Alignment.Center) {
+                        Text("✕", color = pal.sub, fontSize = 14.sp)
+                    }
                 }
             }
         }
@@ -1005,6 +1018,7 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
             )
             Spacer(Modifier.width(12.dp))
         }
+        AiHelper(item, desc, onAddSteps = { refresh() }, onAppendDesc = { t -> desc = (desc + (if (desc.isBlank()) "" else "\n\n") + t).take(1000); db.setDesc(item.id, desc); savedDesc = desc })
         if (focusMode) FocusScreen(item) { focusMode = false; refresh() }
     }
 }

@@ -88,6 +88,46 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
             }
         }
         HorizontalDivider()
+        HorizontalDivider()
+        var aiKey by remember { mutableStateOf(Ai.key(db)) }
+        var aiKeyIn by remember { mutableStateOf("") }
+        var aiLen by remember { mutableStateOf(db.getSetting("ai_len", "600")) }
+        var aiLimit by remember { mutableStateOf(db.getSetting("ai_limit", "30")) }
+        var aiModel by remember { mutableStateOf(db.getSetting("ai_model", "claude-haiku-5-5")) }
+        Text("AI 도우미 (내 API 키)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "내 Anthropic API 키를 폰에만 저장해서 직접 호출해요(드라이브·폰 폴더 동기화에는 포함되지 않아요). 사용한 만큼 키 계정에 요금이 나가므로 아래 한도로 사용량을 제한해요.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(if (aiKey.isBlank()) "키가 저장되어 있지 않아요" else "키 저장됨 (…${aiKey.takeLast(4)})", style = MaterialTheme.typography.bodyMedium)
+        OutlinedTextField(
+            value = aiKeyIn, onValueChange = { aiKeyIn = it }, label = { Text("API 키 붙여넣기") }, singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { val k = aiKeyIn.trim(); if (k.isNotEmpty()) { db.setSetting("ai_key", k); aiKey = k; aiKeyIn = "" } }, enabled = aiKeyIn.isNotBlank()) { Text("키 저장") }
+            OutlinedButton(onClick = { db.setSetting("ai_key", ""); aiKey = "" }, enabled = aiKey.isNotBlank()) { Text("키 지우기") }
+        }
+        Text("응답 길이 한도 (글자)", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("300" to "300자", "600" to "600자", "1000" to "1000자").forEach { (v, l) ->
+                if (aiLen == v) Button(onClick = {}) { Text(l) } else OutlinedButton(onClick = { aiLen = v; db.setSetting("ai_len", v) }) { Text(l) }
+            }
+        }
+        Text("하루 호출 한도", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("10" to "10회", "30" to "30회", "100" to "100회").forEach { (v, l) ->
+                if (aiLimit == v) Button(onClick = {}) { Text(l) } else OutlinedButton(onClick = { aiLimit = v; db.setSetting("ai_limit", v) }) { Text(l) }
+            }
+        }
+        Text("모델", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("claude-haiku-5-5" to "Haiku (저렴)", "claude-sonnet-5-5" to "Sonnet (똑똑)").forEach { (v, l) ->
+                if (aiModel == v) Button(onClick = {}) { Text(l) } else OutlinedButton(onClick = { aiModel = v; db.setSetting("ai_model", v) }) { Text(l) }
+            }
+        }
+        Text("오늘 ${Ai.todayCount(db)}회 사용", style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider()
         StoragePane(db)
         HorizontalDivider()
         var flagOn by remember { mutableStateOf(db.getSetting("flag_group", "0") == "1") }
