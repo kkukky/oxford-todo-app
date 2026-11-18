@@ -217,7 +217,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState { if (lock) 1 else 4 }
+    val pager = rememberPagerState { if (lock) 1 else 5 }
     val fm = LocalFocusManager.current
     remember { FontPref.load(ctx) }
     val baseD = LocalDensity.current
@@ -232,7 +232,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var wasIme by remember { mutableStateOf(false) }
     LaunchedEffect(imeOn) { if (wasIme && !imeOn) fm.clearFocus(); wasIme = imeOn }
     val pal = if (dark) DarkPal else LightPal
-    val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석")
+    val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석", "글쓰기")
 
     val lifeOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifeOwner) {
@@ -298,13 +298,14 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                                 0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
                                 1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
                                 2 -> ArchivePage(tick) { tickLocal++ }
-                                else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
+                                3 -> Placeholder("AI 분석 — 3단계에서 만듭니다")
+                                else -> WritingPage(tick)
                             }
                         }
                     }
                     val (total, done) = remember(tick) { db.counts() }
                     val arcN = remember(tick) { db.archived().size }
-                    if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 4, {
+                    if (!imeOn) Footer(page, total, done, arcN, if (lock) 0 else 5, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
                     }, { showRank = true }, quick, quickPage, quickSel.size, flash, {
@@ -533,7 +534,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, o
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else "AI 분석")
+                if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else if (page == 3) "AI 분석" else "글쓰기")
                 else if (flash.isNotEmpty()) flash else if (quick) (if (quickPage == 1) "지금 할 일로 올릴 일을 고르세요" else "나중으로 보낼 일을 고르세요") else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
                 color = pal.sub, fontSize = 10.sp,
             )

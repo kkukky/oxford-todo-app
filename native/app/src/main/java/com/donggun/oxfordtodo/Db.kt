@@ -12,11 +12,16 @@ data class Item(
     val stepsTotal: Int = 0, val stepsDone: Int = 0,
 )
 
+data class WRow(
+    val id: String, val kind: String, val title: String, val body: String, val draft: String,
+    val srcHash: String, val read: Boolean, val edited: Boolean, val createdAt: Long,
+)
+
 data class Step(val id: String, val title: String, val done: Boolean)
 data class LogRow(val ts: Long, val type: String, val text: String)
 
 /** 로컬 SQLite. 스키마는 Supabase 동기화를 염두에 둔 구조(UUID, updated_at, deleted_at). */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 2) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -41,9 +46,23 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
               updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
         db.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS writings(
+              id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'memo', title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+              draft TEXT NOT NULL DEFAULT '', src_hash TEXT NOT NULL DEFAULT '', is_read INTEGER NOT NULL DEFAULT 0,
+              edited INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"""
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+        if (o < 3) {
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS writings(
+                  id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'memo', title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+                  draft TEXT NOT NULL DEFAULT '', src_hash TEXT NOT NULL DEFAULT '', is_read INTEGER NOT NULL DEFAULT 0,
+                  edited INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"""
+            )
+        }
         if (o < 2) {
             db.execSQL("ALTER TABLE items ADD COLUMN sort_order REAL NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE items ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0")
@@ -262,6 +281,40 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
+
+    /** #글쓰기 표시가 있는 메모(제목이나 설명에). 삭제·보관한 것은 제외 */
+    fun tagged(tag: String): List<Item> {
+        val out = ArrayList<Item>()
+        val like = "%" + tag + "%"
+        readableDatabase.rawQuery(
+            "SELECT id,title,description,bucket,star,urgent,done FROM items WHERE deleted_at IS NULL AND archived_at IS NULL AND (title LIKE ? OR description LIKE ?) ORDER BY created_at DESC",
+            arrayOf(like, like)
+        ).use { c ->
+            while (c.moveToNext()) out.add(Item(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1))
+        }
+        return out
+    }
+
+    fun writings(): List<WRow> {
+        val out = ArrayList<WRow>()
+        readableDatabase.rawQuery(
+            "SELECT id,kind,title,body,draft,src_hash,is_read,edited,created_at FROM writings ORDER BY created_at DESC", null
+        ).use { c ->
+            while (c.moveToNext()) out.add(WRow(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getInt(6) == 1, c.getInt(7) == 1, c.getLong(8)))
+        }
+        return out
+    }
+
+    fun putWriting(w: WRow) {
+        val v = ContentValues().apply {
+            put("id", w.id); put("kind", w.kind); put("title", w.title); put("body", w.body); put("draft", w.draft)
+            put("src_hash", w.srcHash); put("is_read", if (w.read) 1 else 0); put("edited", if (w.edited) 1 else 0)
+            put("created_at", w.createdAt); put("updated_at", now())
+        }
+        writableDatabase.insertWithOnConflict("writings", null, v, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteWriting(id: String) { writableDatabase.delete("writings", "id=?", arrayOf(id)) }
 
     fun getSetting(key: String, def: String): String =
         readableDatabase.rawQuery("SELECT value FROM settings WHERE key=?", arrayOf(key)).use {
