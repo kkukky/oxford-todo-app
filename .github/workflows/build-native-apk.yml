@@ -30,6 +30,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          VER=$(cat native/VERSION | tr -d ' \n')
           cp native/app/build/outputs/apk/debug/app-debug.apk oxford-todo-native.apk
+          cp native/app/build/outputs/apk/debug/app-debug.apk "oxford-todo-native-v${VER}.apk"
           gh release delete native-latest --yes --cleanup-tag || true
-          gh release create native-latest oxford-todo-native.apk --title "옥스포드 투두 네이티브 (최신 APK)" --notes "빌드: ${{ github.sha }}"
+          gh release create native-latest oxford-todo-native.apk "oxford-todo-native-v${VER}.apk" --title "옥스포드 투두 네이티브 v${VER} (최신 APK)" --notes "버전 ${VER} · 빌드: ${{ github.sha }}"

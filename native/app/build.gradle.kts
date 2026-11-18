@@ -12,8 +12,11 @@ android {
         applicationId = "com.donggun.oxfordtodo.native"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        // 버전은 native/VERSION 파일 한 곳에서만 정한다 (예: 1.3). 앱 설정 화면과 APK 파일 이름에 같이 나온다.
+        val ver = file("../VERSION").readText().trim()
+        val vp = ver.split(".")
+        versionCode = (vp.getOrNull(0)?.toIntOrNull() ?: 1) * 1000 + (vp.getOrNull(1)?.toIntOrNull() ?: 0)
+        versionName = ver
     }
     signingConfigs {
         getByName("debug") {

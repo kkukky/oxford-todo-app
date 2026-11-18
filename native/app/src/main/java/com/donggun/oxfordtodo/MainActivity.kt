@@ -146,6 +146,9 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         FontPane()
         HorizontalDivider()
         OutlinedButton(onClick = { ctx.startActivity(Intent(ctx, LockActivity::class.java)) }) { Text("잠금화면 메모 화면 미리보기") }
+        HorizontalDivider()
+        val ver = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?" }
+        Text("옥스포드 투두노트패드 v$ver", style = MaterialTheme.typography.bodySmall)
     }
     if (showBulk) BulkEditDialog(db, { showBulk = false }) { showBulk = false; onChanged() }
 }
