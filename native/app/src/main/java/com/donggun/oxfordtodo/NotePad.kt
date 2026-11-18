@@ -508,7 +508,7 @@ private fun HeadRow(
                 Modifier.size(34.dp).clip(CircleShape).border(1.2.dp, pal.rule, CircleShape).clickable { onFold() },
                 Alignment.Center,
             ) { ChevronsIcon(up = foldLevel == 1 || foldLevel == 2, color = pal.ink)
-                if (foldLevel >= 2) Text("$foldLevel", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp).clip(CircleShape).background(pal.urgentBg).padding(horizontal = 4.dp)) }
+                }
         }
     }
 }
@@ -628,7 +628,14 @@ fun ListPage(
     val order = remember(tick, bucket, filter) { mutableStateListOf<Item>().apply { addAll(visibleItems(db, bucket, filter)) } }
     val listState = rememberLazyListState()
     var topAdd by remember { mutableStateOf(false) }
-    LaunchedEffect(addReq) { if (addReq > 0) { topAdd = true; onAddHandled(); listState.animateScrollToItem(0) } }
+    LaunchedEffect(addReq) {
+        if (addReq > 0) {
+            topAdd = true; onAddHandled()
+            // 맨 위에 입력줄이 끼어들면 목록이 기존 첫 항목을 붙잡아 입력줄이 위로 밀려나므로, 그린 뒤와 키보드가 올라온 뒤에 다시 맨 위로 올린다
+            kotlinx.coroutines.delay(60); listState.scrollToItem(0)
+            kotlinx.coroutines.delay(350); listState.scrollToItem(0)
+        }
+    }
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
 
