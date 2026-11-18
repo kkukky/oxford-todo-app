@@ -27,9 +27,9 @@ object Ai {
 
     fun key(db: Db) = db.getSetting("ai_key", "").trim()
     fun hasKey(db: Db) = key(db).isNotEmpty()
-    fun lenCap(db: Db) = (db.getSetting("ai_len", "600").toIntOrNull() ?: 600).coerceIn(100, 1000)
-    fun dayLimit(db: Db) = (db.getSetting("ai_limit", "30").toIntOrNull() ?: 30).coerceIn(1, 500)
-    fun model(db: Db) = db.getSetting("ai_model", "claude-haiku-5-5")
+    fun lenCap(db: Db) = (db.getSetting("ai_len", "300").toIntOrNull() ?: 300).coerceIn(100, 1000)
+    fun dayLimit(db: Db) = (db.getSetting("ai_limit", "10").toIntOrNull() ?: 10).coerceIn(1, 500)
+    fun model(db: Db) = db.getSetting("ai_model", "claude-sonnet-5-5")
 
     private fun today() = SimpleDateFormat("yyyyMMdd", Locale.KOREA).format(Date())
     fun todayCount(db: Db): Int = if (db.getSetting("ai_day", "") == today()) db.getSetting("ai_cnt", "0").toIntOrNull() ?: 0 else 0

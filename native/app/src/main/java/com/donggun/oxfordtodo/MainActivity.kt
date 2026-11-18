@@ -91,9 +91,9 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         HorizontalDivider()
         var aiKey by remember { mutableStateOf(Ai.key(db)) }
         var aiKeyIn by remember { mutableStateOf("") }
-        var aiLen by remember { mutableStateOf(db.getSetting("ai_len", "600")) }
-        var aiLimit by remember { mutableStateOf(db.getSetting("ai_limit", "30")) }
-        var aiModel by remember { mutableStateOf(db.getSetting("ai_model", "claude-haiku-5-5")) }
+        var aiLen by remember { mutableStateOf(db.getSetting("ai_len", "300")) }
+        var aiLimit by remember { mutableStateOf(db.getSetting("ai_limit", "10")) }
+        var aiModel by remember { mutableStateOf(db.getSetting("ai_model", "claude-sonnet-5-5")) }
         Text("AI 도우미 (내 API 키)", style = MaterialTheme.typography.titleMedium)
         Text(
             "내 Anthropic API 키를 폰에만 저장해서 직접 호출해요(드라이브·폰 폴더 동기화에는 포함되지 않아요). 사용한 만큼 키 계정에 요금이 나가므로 아래 한도로 사용량을 제한해요.",
