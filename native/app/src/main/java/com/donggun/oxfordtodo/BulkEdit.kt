@@ -163,7 +163,7 @@ fun BulkEditDialog(db: Db, onClose: () -> Unit, onSaved: () -> Unit) {
         val dd = LocalDensity.current
         androidx.compose.runtime.CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
             val cs = MaterialTheme.colorScheme
-            Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Column(Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navSafe().imePadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton({ tryClose() }) { Text("✕ 닫기") }
                     Text("지금 할 일 편집", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)

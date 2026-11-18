@@ -129,6 +129,11 @@ private val INPUT_LH = 24.sp
 internal val ROW: Dp get() = 50.dp * FontPref.scale
 internal val MARGIN = 50.dp
 
+/** 하단 시스템 영역(3버튼 내비게이션·제스처 영역)만큼 비워서 뒤로가기/홈 버튼과 앱 버튼이 겹치지 않게 한다 */
+internal fun Modifier.navSafe(): Modifier = this.windowInsetsPadding(
+    WindowInsets.navigationBars.union(WindowInsets.tappableElement).union(WindowInsets.mandatorySystemGestures)
+)
+
 /** 글자 높이(px)로 노트줄 몇 칸이 필요한지 계산 — 글자 크기·시스템 글자 배율과 상관없이 맞는다 */
 @Composable
 private fun rowsFor(textHeightPx: Int, padEach: Dp): Int {
@@ -284,7 +289,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     },
                 )
                 if (showSettings) {
-                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navigationBarsPadding()) { SettingsPane { tickLocal++ } }
+                    Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.material3.MaterialTheme.colorScheme.background).navSafe()) { SettingsPane { tickLocal++ } }
                 } else {
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
@@ -435,7 +440,7 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
         (tag == null || tagsOf(tx).contains(tag)) && toks.all { tx.contains(it) }
     }
     LaunchedEffect(Unit) { fr.requestFocus() }
-    Column(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp)) {
+    Column(modifier.fillMaxWidth().navSafe().padding(horizontal = 14.dp)) {
         Row(
             Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(50)).border(1.dp, pal.rule, RoundedCornerShape(50)).padding(start = 14.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -511,7 +516,7 @@ private fun HeadRow(
 private fun Footer(page: Int, total: Int, done: Int, archived: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, quickPage: Int, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
     val btn = Modifier.size(width = 62.dp, height = 44.dp)
-    Box(Modifier.fillMaxWidth().background(pal.panel).navigationBarsPadding().height(66.dp)) {
+    Box(Modifier.fillMaxWidth().background(pal.panel).navSafe().height(66.dp)) {
         if (page < 2) {
             Row(Modifier.align(Alignment.CenterStart).padding(start = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Box(btn.clip(RoundedCornerShape(6.dp)).border(1.dp, pal.rule, RoundedCornerShape(6.dp)).clickable(enabled = !quick) { onClear() }.alpha(if (quick) 0.4f else 1f), Alignment.Center) {
@@ -760,7 +765,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
     ) {
         val dd = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
-        Column(Modifier.fillMaxSize().background(pal.bg).imePadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(pal.bg).imePadding().navSafe()) {
             Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp + 0.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clickable { close() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
                 Text("할 일 수정", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
@@ -819,7 +824,7 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
         DisposableEffect(awake) { view.keepScreenOn = awake; onDispose { view.keepScreenOn = false } }
         val dd = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
-            Column(Modifier.fillMaxSize().background(pal.bg).navigationBarsPadding()) {
+            Column(Modifier.fillMaxSize().background(pal.bg).navSafe()) {
                 Row(Modifier.fillMaxWidth().background(pal.bar).statusBarsPadding().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(48.dp).clickable { end() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
                     Text("집중", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
@@ -1183,7 +1188,7 @@ private fun RankDialog(db: Db, onClose: () -> Unit, onApplied: () -> Unit) {
     ) {
         val dd = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(dd.density, dd.fontScale * FontPref.scale)) {
-            Column(Modifier.fillMaxSize().background(pal.bg).statusBarsPadding().navigationBarsPadding()) {
+            Column(Modifier.fillMaxSize().background(pal.bg).statusBarsPadding().navSafe()) {
                 Row(Modifier.fillMaxWidth().background(pal.bar).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(48.dp).clickable { onClose() }, Alignment.Center) { Text("✕", color = pal.barInk, fontSize = 20.sp) }
                     Text("우선순위 가르기", color = pal.barInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
