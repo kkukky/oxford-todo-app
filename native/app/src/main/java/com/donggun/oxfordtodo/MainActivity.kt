@@ -78,7 +78,7 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
             ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
         }) { Text("알림 설정 열기 (전체 화면 알림 허용)") }
         HorizontalDivider()
-        var lockSec by remember { mutableStateOf(db.getSetting("lock_sec", "30")) }
+        var lockSec by remember { mutableStateOf(db.getSetting("lock_sec", "10")) }
         Text("잠금화면 메모 자동 종료", style = MaterialTheme.typography.titleMedium)
         Text("잠금화면 위에서 아무 입력이 없으면 이 시간 뒤에 닫혀요.", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {

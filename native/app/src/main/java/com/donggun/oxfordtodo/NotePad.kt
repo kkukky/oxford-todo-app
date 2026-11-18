@@ -199,7 +199,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var quick by remember { mutableStateOf(false) }
     var foldLevel by remember { mutableIntStateOf(0) }
     if (lock) {
-        val lockSec = remember { (db.getSetting("lock_sec", "30").toIntOrNull() ?: 30).coerceIn(5, 600) }
+        val lockSec = remember { (db.getSetting("lock_sec", "10").toIntOrNull() ?: 10).coerceIn(5, 600) }
         LaunchedEffect(Unit) {
             Idle.poke()
             while (true) {
