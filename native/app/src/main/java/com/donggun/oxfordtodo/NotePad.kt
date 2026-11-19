@@ -245,10 +245,12 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                 scope.launch { for (d in longArrayOf(150, 300, 500)) { kotlinx.coroutines.delay(d); if (!touched) fm.clearFocus() } }
             }
             if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME || e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) SyncState.sync(ctx)
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) SyncWorker.once(ctx)
         }
         lifeOwner.lifecycle.addObserver(ob); onDispose { lifeOwner.lifecycle.removeObserver(ob) }
     }
     LaunchedEffect(tickLocal) { if (tickLocal > 0) { kotlinx.coroutines.delay(2500); SyncState.sync(ctx) } }
+    LaunchedEffect(Unit) { SyncState.refreshWarn(db); SyncWorker.schedule(ctx) }
 
     BackHandler(enabled = anyFocus) { fm.clearFocus() }
     BackHandler(enabled = quick && !anyFocus && !showSettings && !searching) { quick = false; quickSel.clear() }
@@ -267,6 +269,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); touched = true; Idle.poke() } } },
         ) {
             Band(dark, { dark = !dark; db.setSetting("dark", if (dark) "1" else "0") }, { fm.clearFocus(); showSettings = !showSettings }, lock, onOpenApp, onClose, searching) { fm.clearFocus(); searching = !searching; showSettings = false }
+            if (!lock && !showSettings) SyncBanner { fm.clearFocus(); showSettings = true }
             val page = pager.currentPage
             val listPage = !showSettings && page < 2
             val bucket = if (page == 1) "later" else "now"
@@ -1198,20 +1201,54 @@ private fun ArchivePage(tick: Int, onChange: () -> Unit) {
 object SyncState {
     val rev = mutableIntStateOf(0)
     val status = mutableStateOf("")
+    /** 메인 화면 위쪽에 띄울 경고 (비어 있으면 안 띄움) */
+    val warn = mutableStateOf("")
     private val busy = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun refreshWarn(db: Db) {
+        val d = Sync.driveOn(db); val f = Sync.folderOn(db); val err = db.getSetting("sync_err", "")
+        warn.value = when {
+            !d && !f -> "⚠ 동기화가 꺼져 있어요 · 눌러서 설정"
+            !d -> "⚠ 구글 드라이브가 연결되어 있지 않아요 · 눌러서 연결"
+            err.isNotEmpty() -> "⚠ 동기화 실패: " + Ai.cut(err, 70) + " · 눌러서 확인"
+            else -> ""
+        }
+    }
+
+    /** 동기화 결과를 화면 문구로 바꾼다 (화면에서 돌린 것·백그라운드 작업에서 돌린 것 모두) */
+    fun report(db: Db, r: Sync.Result, force: Boolean = false) {
+        status.value = when {
+            r.errors.isNotEmpty() -> "동기화 일부 실패: " + r.errors.joinToString(" / ")
+            r.saved == 0 && r.got == 0 -> "바뀐 내용이 없어서 동기화를 건너뛰었어요" + (if (r.notes.isNotEmpty()) " (" + r.notes.joinToString(", ") + ")" else "")
+            else -> "동기화 완료 (저장 ${r.saved}곳 · 가져온 변경 ${r.got}건)" + (if (r.notes.isNotEmpty()) " · " + r.notes.joinToString(", ") else "")
+        }
+        refreshWarn(db)
+        if (r.got > 0 || force) rev.intValue++
+    }
+
     fun sync(ctx: android.content.Context, force: Boolean = false) {
         val db = Db.get(ctx)
-        if (!Sync.enabled(db) || !busy.compareAndSet(false, true)) return
+        if (!Sync.enabled(db)) { status.value = "동기화가 꺼져 있어요. 설정에서 폰 폴더나 구글 드라이브를 연결해 주세요"; refreshWarn(db); return }
+        if (!busy.compareAndSet(false, true)) return
         status.value = "동기화 중…"
         Thread {
-            try {
-                val (up, down) = Sync.run(ctx)
-                status.value = if (up == 0 && down == 0) "바뀐 내용이 없어서 동기화를 건너뛰었어요" else "동기화 완료 (저장 ${up}곳 · 가져온 변경 ${down}건)"
-                if (down > 0 || force) rev.intValue++
-            } catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName) }
+            try { report(db, Sync.run(ctx), force) }
+            catch (e: Exception) { status.value = "동기화 실패: " + (e.message ?: e.javaClass.simpleName); db.setSetting("sync_err", e.message ?: e.javaClass.simpleName); refreshWarn(db) }
             finally { busy.set(false) }
         }.start()
     }
+}
+
+/** 메인 화면 위쪽의 동기화 경고줄. 누르면 설정으로 간다. */
+@Composable
+private fun SyncBanner(onOpen: () -> Unit) {
+    val w = SyncState.warn.value
+    if (w.isEmpty()) return
+    val pal = LocalPal.current
+    Text(
+        w, color = pal.urgentBg, fontSize = 12.sp, fontWeight = FontWeight.Bold, lineHeight = 15.sp, maxLines = 2,
+        modifier = Modifier.fillMaxWidth().background(pal.panel).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 

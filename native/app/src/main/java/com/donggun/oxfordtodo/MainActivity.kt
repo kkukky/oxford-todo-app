@@ -174,14 +174,15 @@ fun StoragePane(db: Db) {
     var fsLabel by remember { mutableStateOf(Store.label(ctx)) }
     var gdOn by remember { mutableStateOf(Sync.driveOn(db)) }
     var gdMail by remember { mutableStateOf(Sync.email(db)) }
+    var askOff by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     val st = SyncState.status.value
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) { Store.setTree(ctx, uri); fsLabel = Store.label(ctx); msg = ""; SyncState.sync(ctx, true) }
+        if (uri != null) { Store.setTree(ctx, uri); fsLabel = Store.label(ctx); msg = ""; SyncWorker.schedule(ctx); SyncState.sync(ctx, true) }
     }
     fun done(res: com.google.android.gms.auth.api.identity.AuthorizationResult?) {
-        db.setSetting("gd_on", "1"); gdOn = true
+        db.setSetting("gd_on", "1"); gdOn = true; SyncWorker.schedule(ctx)
         res?.toGoogleSignInAccount()?.email?.let { db.setSetting("gd_email", it); gdMail = it }
         msg = ""; SyncState.sync(ctx, true)
     }
@@ -206,7 +207,7 @@ fun StoragePane(db: Db) {
         Text("사용 중: $fsLabel")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = { pick.launch(Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments")) }) { Text("폴더 바꾸기") }
-            OutlinedButton(onClick = { Store.clear(ctx); fsLabel = "" }) { Text("사용 안 함") }
+            OutlinedButton(onClick = { Store.clear(ctx); fsLabel = ""; SyncState.refreshWarn(db); SyncWorker.schedule(ctx) }) { Text("사용 안 함") }
         }
     } else {
         Text("'Documents' 폴더를 고른 뒤 '이 폴더 사용'을 누르면 그 안에 OXFORDToDoNotepad 폴더가 만들어져요.", style = MaterialTheme.typography.bodySmall)
@@ -216,7 +217,14 @@ fun StoragePane(db: Db) {
     Text("② 구글 드라이브", style = MaterialTheme.typography.titleSmall)
     if (gdOn) {
         Text("연결됨" + if (gdMail.isNotEmpty()) ": $gdMail" else "")
-        OutlinedButton(onClick = { db.setSetting("gd_on", "0"); gdOn = false }) { Text("연결 끊기") }
+        OutlinedButton(onClick = { askOff = true }) { Text("연결 끊기") }
+        if (askOff) AlertDialog(
+            onDismissRequest = { askOff = false },
+            title = { Text("구글 드라이브 연결을 끊을까요?") },
+            text = { Text("끊으면 이 폰의 메모가 구글 드라이브에 더 이상 올라가지 않아요. 폰 안의 메모는 지워지지 않아요.") },
+            confirmButton = { TextButton({ db.setSetting("gd_on", "0"); gdOn = false; askOff = false; SyncState.refreshWarn(db); SyncWorker.schedule(ctx) }) { Text("연결 끊기") } },
+            dismissButton = { TextButton({ askOff = false }) { Text("취소") } },
+        )
     } else {
         Text("내 드라이브에 OXFORDToDoNotepad 폴더를 만들고 이 앱이 만든 파일만 읽고 써요.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = { connect() }) { Text("구글 드라이브 연결") }
@@ -229,6 +237,10 @@ fun StoragePane(db: Db) {
         val lastChange = remember(st) { at(db.getSetting("last_change", "")) }
         Text("마지막 확인: $lastCheck", style = MaterialTheme.typography.bodySmall)
         Text("마지막 변경 반영: $lastChange", style = MaterialTheme.typography.bodySmall)
+        val lastOk = remember(st) { at(db.getSetting("last_ok", "")) }
+        Text("마지막 성공: $lastOk", style = MaterialTheme.typography.bodySmall)
+        val savedErr = remember(st) { db.getSetting("sync_err", "") }
+        if (savedErr.isNotEmpty()) Text("최근 오류: $savedErr", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         if (st.isNotEmpty()) Text(st, style = MaterialTheme.typography.bodySmall)
         Button(onClick = { SyncState.sync(ctx, true) }) { Text("지금 동기화") }
     }
