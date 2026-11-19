@@ -14,9 +14,10 @@ data class Item(
 
 data class Step(val id: String, val title: String, val done: Boolean)
 data class LogRow(val ts: Long, val type: String, val text: String)
+data class AiRow(val id: String, val who: String, val label: String, val text: String, val applied: String)
 
 /** 로컬 SQLite. 스키마는 Supabase 동기화를 염두에 둔 구조(UUID, updated_at, deleted_at). */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 2) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -41,9 +42,23 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
               updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
         db.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS ai_msgs(
+              id TEXT PRIMARY KEY, item_id TEXT NOT NULL, who TEXT NOT NULL, label TEXT NOT NULL DEFAULT '',
+              text TEXT NOT NULL DEFAULT '', applied TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+        if (o < 3) {
+            db.execSQL(
+            """CREATE TABLE IF NOT EXISTS ai_msgs(
+              id TEXT PRIMARY KEY, item_id TEXT NOT NULL, who TEXT NOT NULL, label TEXT NOT NULL DEFAULT '',
+              text TEXT NOT NULL DEFAULT '', applied TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+        )
+        }
         if (o < 2) {
             db.execSQL("ALTER TABLE items ADD COLUMN sort_order REAL NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE items ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0")
@@ -238,7 +253,41 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     fun deleteItem(id: String) {
         val ts = now(); val v = ContentValues().apply { put("deleted_at", ts); put("updated_at", ts) }
         writableDatabase.update("items", v, "id=?", arrayOf(id))
+        aiClear(id)
     }
+    // ---------- AI 도우미 대화 (할 일마다 이어서 보관, 동기화에 포함) ----------
+    fun aiMsgs(itemId: String): List<AiRow> {
+        val out = ArrayList<AiRow>()
+        readableDatabase.rawQuery("SELECT id,who,label,text,applied FROM ai_msgs WHERE item_id=? AND deleted_at IS NULL ORDER BY created_at,id", arrayOf(itemId))
+            .use { c -> while (c.moveToNext()) out.add(AiRow(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4))) }
+        return out
+    }
+
+    fun aiAdd(itemId: String, who: String, label: String, text: String): String {
+        val id = UUID.randomUUID().toString()
+        val v = ContentValues().apply {
+            put("id", id); put("item_id", itemId); put("who", who); put("label", label); put("text", text)
+            put("created_at", now()); put("updated_at", now())
+        }
+        writableDatabase.insert("ai_msgs", null, v)
+        return id
+    }
+
+    fun aiApplied(id: String, applied: String) {
+        val v = ContentValues().apply { put("applied", applied); put("updated_at", now()) }
+        writableDatabase.update("ai_msgs", v, "id=?", arrayOf(id))
+    }
+
+    fun aiDelete(id: String) {
+        val v = ContentValues().apply { put("deleted_at", now()); put("updated_at", now()) }
+        writableDatabase.update("ai_msgs", v, "id=?", arrayOf(id))
+    }
+
+    fun aiClear(itemId: String) {
+        val v = ContentValues().apply { put("deleted_at", now()); put("updated_at", now()) }
+        writableDatabase.update("ai_msgs", v, "item_id=? AND deleted_at IS NULL", arrayOf(itemId))
+    }
+
     fun archived(): List<Item> {
         val out = ArrayList<Item>()
         readableDatabase.rawQuery(
