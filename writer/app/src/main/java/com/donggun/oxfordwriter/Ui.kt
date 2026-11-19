@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -184,6 +185,7 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
     var stopReq by remember { mutableStateOf(false) }
     var prog by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Ent?>(null) }
+    val listState = rememberLazyListState()
 
     fun toast(m: String) = Toast.makeText(ctx, m, Toast.LENGTH_SHORT).show()
 
@@ -243,7 +245,7 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
 
     val pending = ents.count { it.draft.isBlank() }
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -274,7 +276,10 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
                     .border(1.dp, if (open) C.Wood else C.Line, RoundedCornerShape(12.dp)),
             ) {
                 Row(
-                    Modifier.fillMaxWidth().clickable { openId = if (open) "" else e.id }.padding(horizontal = 14.dp, vertical = 13.dp),
+                    Modifier.fillMaxWidth().clickable {
+                        openId = if (open) "" else e.id
+                        if (!open) { val ix = ents.indexOfFirst { it.id == e.id } + 1; scope.launch { listState.animateScrollToItem(ix) } }
+                    }.padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (unread) Box(Modifier.padding(end = 8.dp).size(8.dp).clip(RoundedCornerShape(50)).background(C.Accent))
