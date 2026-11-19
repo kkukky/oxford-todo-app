@@ -8,6 +8,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -185,6 +187,7 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
     var stopReq by remember { mutableStateOf(false) }
     var prog by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Ent?>(null) }
+    var shareFor by remember { mutableStateOf<Ent?>(null) }
     val listState = rememberLazyListState()
 
     fun toast(m: String) = Toast.makeText(ctx, m, Toast.LENGTH_SHORT).show()
@@ -241,6 +244,31 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
     fun share(t: String) {
         if (t.isBlank()) { toast("공유할 내용이 없어요"); return }
         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, t) }, "글 공유"))
+    }
+
+    fun shareHwpx(e: Ent) {
+        try {
+            val txt = e.draft
+            val nl = txt.indexOf('\n')
+            val t = if (nl in 1..69) txt.substring(0, nl).trim() else e.title
+            val b = if (nl in 1..69) txt.substring(nl).trim() else txt
+            val bytes = Hwpx.build(ctx, t, b)
+            val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val name = t.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").trim('_').take(30).ifEmpty { "글" } + ".hwpx"
+            val f = File(dir, name)
+            f.writeBytes(bytes)
+            val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+            val it = Intent(Intent.ACTION_SEND).apply {
+                type = "application/hwp+zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, t)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            ctx.startActivity(Intent.createChooser(it, "HWPX 파일 공유"))
+        } catch (ex: Exception) {
+            toast("HWPX 파일을 만들지 못했어요")
+        }
     }
 
     val pending = ents.count { it.draft.isBlank() }
@@ -323,7 +351,7 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
                                     }
                                     WBtn("수정") { editing = e }
                                     WBtn("복사") { copy(e.draft) }
-                                    WBtn("공유") { share(e.draft) }
+                                    WBtn("공유") { shareFor = e }
                                 }
                                 if (e.local) WBtn("삭제") { Drafts.remove(ctx, e.id); if (openId == e.id) openId = ""; rev++ }
                             }
@@ -345,6 +373,16 @@ private fun WritingList(memos: List<Memo>, loadErr: String, rev0: Int, onReload:
         confirmButton = { TextButton({ confirmAll = false; runAll() }) { Text("모두 쓰기") } },
         dismissButton = { TextButton({ confirmAll = false }) { Text("취소") } },
     )
+
+    shareFor?.let { e ->
+        AlertDialog(
+            onDismissRequest = { shareFor = null },
+            title = { Text("공유") },
+            text = { Text("어떤 형태로 보낼까요? 바깥을 누르면 취소돼요.") },
+            confirmButton = { TextButton({ shareFor = null; shareHwpx(e) }) { Text("HWPX 파일") } },
+            dismissButton = { TextButton({ shareFor = null; share(e.draft) }) { Text("텍스트") } },
+        )
+    }
 
     editing?.let { e -> Editor(e, { editing = null }) { txt -> saveDraft(ctx, e, txt, true); editing = null; rev++; toast("저장했어요") } }
 }
