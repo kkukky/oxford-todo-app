@@ -641,6 +641,8 @@ fun ListPage(
             kotlinx.coroutines.delay(350); listState.scrollToItem(0)
         }
     }
+    val topSig = ScrollTop.n.intValue
+    LaunchedEffect(topSig) { if (topSig > 0) { kotlinx.coroutines.delay(80); listState.scrollToItem(0); kotlinx.coroutines.delay(250); listState.scrollToItem(0) } }
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
 
@@ -769,7 +771,7 @@ private fun NewEditor(bucket: String, onDone: () -> Unit) {
     var back by remember { mutableIntStateOf(0) }
     LaunchedEffect(back) { if (back > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(100); fr.requestFocus() }
-    fun finish() { if (finished) return; val v = tf.text.trim(); if (v.isEmpty()) return; finished = true; db.add(v, bucket, star, urgent, true); onDone() }
+    fun finish() { if (finished) return; val v = tf.text.trim(); if (v.isEmpty()) return; finished = true; db.add(v, bucket, star, urgent, true); ScrollTop.n.intValue++; onDone() }
     fun close() { if (finished) return; if (tf.text.isBlank()) { finished = true; onDone() } else ask = true }
     androidx.compose.ui.window.Dialog(
         onDismissRequest = { close() },
@@ -873,6 +875,9 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
     }
     if (ask) SaveAsk(tf.text, onSave = { ask = false; finish() }, onDiscard = { ask = false; if (!finished) { finished = true; onDone() } }, onBack = { ask = false; back++ })
 }
+
+/** 할 일을 새로 추가하면 올려서, 목록이 맨 위로 스크롤되게 한다 */
+internal object ScrollTop { val n = mutableIntStateOf(0) }
 
 /** 집중 모드: 이 할 일만 전체 화면으로 보여 주고 타이머를 돌린다 */
 @Composable
@@ -1128,7 +1133,7 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0, top: B
     // 맨 위 입력줄은 '할 일 추가'를 눌러 새로 생길 때 한 번만 포커스를 받는다(페이지가 다시 그려질 때마다 열리지 않게)
     LaunchedEffect(Unit) { if (top) { kotlinx.coroutines.delay(120); fr.requestFocus() } }
     LaunchedEffect(refocus) { if (refocus > 0) { kotlinx.coroutines.delay(150); fr.requestFocus() } }
-    fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent, top); t = ""; star = false; urgent = false; onChange(); onDone() } }
+    fun submit() { if (t.isNotBlank()) { db.add(t, bucket, star, urgent, top); if (top) ScrollTop.n.intValue++; t = ""; star = false; urgent = false; onChange(); onDone() } }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("+", color = pal.margin, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
