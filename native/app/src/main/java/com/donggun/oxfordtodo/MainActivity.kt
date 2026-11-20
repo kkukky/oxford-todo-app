@@ -89,6 +89,36 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         }
         HorizontalDivider()
         HorizontalDivider()
+        var calOn by remember { mutableStateOf(CalLog.enabled(db)) }
+        var calPerm by remember { mutableStateOf(CalLog.granted(ctx)) }
+        var calFound by remember { mutableStateOf(if (calPerm) CalLog.findId(ctx) != null else null) }
+        var calLast by remember { mutableStateOf(db.getSetting("cal_last", "")) }
+        val calLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+            calPerm = r.values.all { it }; calFound = if (calPerm) CalLog.findId(ctx) != null else null
+            if (calPerm) { calOn = true; db.setSetting("cal_on", "1") }
+        }
+        Text("구글 캘린더에 기록", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "집중 모드를 끝내면(1분 이상) 폰 캘린더의 ‘OXFORDTODO’ 캘린더에 ‘할 일 제목 · 집중 시간’ 일정을 남겨요. 캘린더는 구글 캘린더(웹)에서 미리 만들어 두어야 하고, 색상은 거기서 정해요.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Switch(checked = calOn, onCheckedChange = { on ->
+                if (on && !CalLog.granted(ctx)) calLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+                else { calOn = on; db.setSetting("cal_on", if (on) "1" else "0"); if (on) calFound = CalLog.findId(ctx) != null }
+            })
+            Text(if (calOn) "켜짐" else "꺼짐", style = MaterialTheme.typography.bodyMedium)
+        }
+        if (calOn) {
+            Text(
+                when { !calPerm -> "캘린더 권한이 필요해요"; calFound == true -> "‘OXFORDTODO’ 캘린더를 찾았어요"; else -> "‘OXFORDTODO’ 캘린더를 찾지 못했어요. 구글 캘린더에서 만든 뒤 폰 캘린더 앱에서 보이게 켜 주세요" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (calPerm && calFound == true) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+            )
+            OutlinedButton(onClick = { calFound = CalLog.findId(ctx) != null; calLast = db.getSetting("cal_last", "") }) { Text("다시 확인") }
+            if (calLast.isNotBlank()) Text("최근: $calLast", style = MaterialTheme.typography.bodySmall)
+        }
+        HorizontalDivider()
         var aiKey by remember { mutableStateOf(Ai.key(db)) }
         var aiKeyIn by remember { mutableStateOf("") }
         var keyMsg by remember { mutableStateOf<String?>(null) }

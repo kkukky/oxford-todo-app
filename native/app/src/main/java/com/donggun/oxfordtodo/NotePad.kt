@@ -886,7 +886,8 @@ private fun FocusScreen(item: Item, onClose: () -> Unit) {
     var running by remember { mutableStateOf(true) }
     var awake by remember { mutableStateOf(db.getSetting("focus_awake", "1") == "1") }
     LaunchedEffect(running) { while (running) { kotlinx.coroutines.delay(1000); sec++ } }
-    fun end() { if (sec >= 60) db.focusLog(item.id, sec / 60); onClose() }
+    val appCtx = LocalContext.current
+    fun end() { if (sec >= 60) { db.focusLog(item.id, sec / 60); CalLog.onFocusEnd(appCtx, db, item.title, sec / 60) }; onClose() }
     val time = (sec / 3600).let { h -> if (h > 0) "%d:%02d:%02d".format(h, (sec % 3600) / 60, sec % 60) else "%02d:%02d".format((sec % 3600) / 60, sec % 60) }
     androidx.compose.ui.window.Dialog(
         onDismissRequest = { end() },
