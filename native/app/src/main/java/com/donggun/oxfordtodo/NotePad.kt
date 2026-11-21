@@ -417,7 +417,7 @@ private fun SearchIcon(color: Color) {
     }
 }
 
-private class Memo(val id: String, val title: String, val desc: String, val steps: List<String>, val where: String, val page: Int) {
+private class Memo(val id: String, val title: String, val desc: String, val steps: List<String>, val where: String, val page: Int, val createdAt: Long = 0, val done: Boolean = false) {
     val text = (listOf(title, desc) + steps).joinToString(" ")
 }
 
@@ -429,10 +429,11 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
     val pal = LocalPal.current
     var q by remember { mutableStateOf("") }
     var tag by remember { mutableStateOf<String?>(null) }
+    var oldest by remember { mutableStateOf(false) }
     val fr = remember { FocusRequester() }
     val memos = remember(tick) {
-        val a = (db.list("now") + db.list("later")).map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, if (it.bucket == "now") "지금 할 일" else "나중 할 일", if (it.bucket == "now") 0 else 1) }
-        val b = db.archived().map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, "보관함", 2) }
+        val a = (db.list("now") + db.list("later")).map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, if (it.bucket == "now") "지금 할 일" else "나중 할 일", if (it.bucket == "now") 0 else 1, it.createdAt, it.done) }
+        val b = db.archived().map { Memo(it.id, it.title, it.description, db.steps(it.id).map { s -> s.title }, "보관함", 2, it.createdAt, it.done) }
         a + b
     }
     val counts = remember(memos) {
@@ -441,10 +442,12 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
         m.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
     }
     val toks = q.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    val hits = if (tag == null && toks.isEmpty()) emptyList() else memos.filter { m ->
+    val noFilter = tag == null && toks.isEmpty()
+    val found = if (noFilter && !oldest) emptyList() else memos.filter { m ->
         val tx = m.text.lowercase()
-        (tag == null || tagsOf(tx).contains(tag)) && toks.all { tx.contains(it) }
+        (tag == null || tagsOf(tx).contains(tag)) && toks.all { tx.contains(it) } && (!oldest || !noFilter || !m.done)
     }
+    val hits = if (oldest) found.sortedBy { if (it.createdAt > 0) it.createdAt else Long.MAX_VALUE } else found
     LaunchedEffect(Unit) { fr.requestFocus() }
     Column(modifier.fillMaxWidth().navSafe().padding(horizontal = 14.dp)) {
         Row(
@@ -462,6 +465,11 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
             if (q.isNotEmpty() || tag != null) Text("✕", color = pal.sub, fontSize = 14.sp, modifier = Modifier.clickable { q = ""; tag = null }.padding(10.dp))
         }
         FlowRow(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "오래된 메모순", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (oldest) Color.White else pal.urgentBg,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (oldest) pal.urgentBg else Color.Transparent)
+                    .border(1.dp, pal.urgentBg, RoundedCornerShape(50)).clickable { oldest = !oldest }.padding(horizontal = 11.dp, vertical = 6.dp),
+            )
             counts.forEach { (t, n) ->
                 val on = tag == t
                 Text(
@@ -471,7 +479,7 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
                 )
             }
         }
-        if (tag == null && toks.isEmpty()) {
+        if (noFilter && !oldest) {
             Text(if (counts.isEmpty()) "메모에 #키워드를 적어 두면 여기에 모여요" else "키워드를 누르거나 검색어를 적어 보세요", color = pal.sub, fontSize = 14.sp, modifier = Modifier.padding(4.dp))
         } else if (hits.isEmpty()) {
             Text("찾은 메모가 없어요", color = pal.sub, fontSize = 14.sp, modifier = Modifier.padding(4.dp))
@@ -481,7 +489,7 @@ private fun SearchPane(tick: Int, modifier: Modifier, onPick: (Int, String) -> U
                     drawLine(pal.rule, Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), 1f)
                 }.padding(vertical = 10.dp, horizontal = 4.dp)) {
                     Text(tagged(m.title, tagColor()), color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, lineHeight = 24.sp)
-                    Text(m.where + (if (m.desc.isNotEmpty()) " · ${m.desc}" else "") + (if (m.steps.isNotEmpty()) " · 절차 ${m.steps.size}" else ""), color = pal.sub, fontSize = 11.sp)
+                    Text(m.where + (if (m.createdAt > 0) " · ${agoShort(m.createdAt)} 전" else "") + (if (m.desc.isNotEmpty()) " · ${m.desc}" else "") + (if (m.steps.isNotEmpty()) " · 절차 ${m.steps.size}" else ""), color = pal.sub, fontSize = 11.sp)
                 }
             }
         }
@@ -744,6 +752,13 @@ private fun ItemBlock(
                 onTextLayout = { lines = it.lineCount; titleH = it.size.height }, modifier = Modifier.weight(1f).padding(end = 4.dp),
                 maxLines = if (oneLine) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
             )
+            if (!item.done && item.createdAt > 0) {
+                val d = ageDays(item.createdAt)
+                Text(
+                    agoShort(item.createdAt), fontSize = 11.sp, fontWeight = if (d >= 7) FontWeight.Bold else FontWeight.Normal,
+                    color = if (d >= 30) pal.urgentBg else if (d >= 7) pal.accent else pal.sub, modifier = Modifier.padding(end = 4.dp),
+                )
+            }
             if (item.stepsTotal > 0) Text(
                 "${item.stepsDone}/${item.stepsTotal}", color = pal.ink, fontSize = 10.sp,
                 modifier = Modifier.padding(end = 2.dp).border(1.dp, pal.rule, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
@@ -882,6 +897,17 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
 }
 
 /** 할 일을 새로 추가하면 올려서, 목록이 맨 위로 스크롤되게 한다 */
+/** 경과 시간을 짧게: 방금 / N분 / N시간 / N일 / N주 / N개월 / N년 */
+internal fun agoShort(ms: Long): String {
+    val m = (System.currentTimeMillis() - ms).coerceAtLeast(0) / 60000
+    return when {
+        m < 1 -> "방금"; m < 60 -> "${m}분"; m < 60 * 24 -> "${m / 60}시간"; m < 60 * 24 * 7 -> "${m / 1440}일"
+        m < 60 * 24 * 30 -> "${m / 10080}주"; m < 60 * 24 * 365 -> "${m / 43200}개월"; else -> "${m / 525600}년"
+    }
+}
+internal fun ageDays(ms: Long) = ((System.currentTimeMillis() - ms).coerceAtLeast(0) / 86400000L).toInt()
+internal fun fullDate(ms: Long): String = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.KOREA).format(java.util.Date(ms))
+
 internal val FlagInk = Color(0xFF1A44C2) // 호박색의 보색(파랑)
 
 internal object ScrollTop { val n = mutableIntStateOf(0) }
@@ -1001,6 +1027,10 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
     val rowPx = with(LocalDensity.current) { ROW.toPx() }
 
     Column(Modifier.fillMaxWidth().background(pal.panel)) {
+        if (item.createdAt > 0) Text(
+            "등록 ${fullDate(item.createdAt)} (${agoShort(item.createdAt)} 전)" + (if (item.updatedAt - item.createdAt > 60000) " · 수정 ${agoShort(item.updatedAt)} 전" else ""),
+            color = pal.sub, fontSize = 11.sp, modifier = Modifier.padding(start = MARGIN + 10.dp, top = 6.dp, bottom = 2.dp),
+        )
         // 설명 + ☆ ! ↓
         Row(Modifier.fillMaxWidth().ruled(), verticalAlignment = Alignment.Top) {
             Box(Modifier.width(MARGIN).height(ROW), Alignment.Center) { Text("설명", color = pal.sub, fontSize = 10.sp) }

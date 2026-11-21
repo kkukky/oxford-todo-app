@@ -10,6 +10,7 @@ data class Item(
     val id: String, val title: String, val description: String, val bucket: String,
     val star: Boolean, val urgent: Boolean, val done: Boolean,
     val stepsTotal: Int = 0, val stepsDone: Int = 0,
+    val createdAt: Long = 0, val updatedAt: Long = 0,
 )
 
 data class Step(val id: String, val title: String, val done: Boolean)
@@ -78,14 +79,14 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         readableDatabase.rawQuery(
             "SELECT id,title,description,bucket,star,urgent,done," +
                 "(SELECT COUNT(*) FROM steps s WHERE s.item_id=items.id AND s.deleted_at IS NULL)," +
-                "(SELECT COUNT(*) FROM steps s WHERE s.item_id=items.id AND s.deleted_at IS NULL AND s.done=1) " +
+                "(SELECT COUNT(*) FROM steps s WHERE s.item_id=items.id AND s.deleted_at IS NULL AND s.done=1), created_at, updated_at " +
                 "FROM items WHERE bucket=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY done, sort_order, created_at",
             arrayOf(bucket)
         ).use { c ->
             while (c.moveToNext()) out.add(
                 Item(
                     c.getString(0), c.getString(1), c.getString(2), c.getString(3),
-                    c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1, c.getInt(7), c.getInt(8)
+                    c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1, c.getInt(7), c.getInt(8), c.getLong(9), c.getLong(10)
                 )
             )
         }
@@ -291,10 +292,10 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     fun archived(): List<Item> {
         val out = ArrayList<Item>()
         readableDatabase.rawQuery(
-            "SELECT id,title,description,bucket,star,urgent,done,0,0 FROM items WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC", null
+            "SELECT id,title,description,bucket,star,urgent,done,0,0,created_at,updated_at FROM items WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC", null
         ).use { c ->
             while (c.moveToNext()) out.add(Item(c.getString(0), c.getString(1), c.getString(2), c.getString(3),
-                c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1, 0, 0))
+                c.getInt(4) == 1, c.getInt(5) == 1, c.getInt(6) == 1, 0, 0, c.getLong(9), c.getLong(10)))
         }
         return out
     }
