@@ -728,20 +728,24 @@ private fun ItemBlock(
             Spacer(Modifier.width(10.dp))
             Text("▶", color = if (open) pal.ink else pal.sub, fontSize = 10.sp, modifier = Modifier.rotate(if (open) 90f else 0f).width(14.dp))
             if (item.urgent || item.star) {
-                Row(Modifier.padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 둘 다 체크하면 긴급이 위, 중요가 아래로 쌓인다
+                val both = item.urgent && item.star
+                val fs = if (both) 10.sp else 12.sp
+                val padV = if (both) 1.dp else 3.dp
+                Column(Modifier.padding(end = 6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (item.urgent) Text(
-                        "긴급", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(horizontal = 7.dp, vertical = 3.dp),
+                        "긴급", color = Color.White, fontSize = fs, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(horizontal = 7.dp, vertical = padV),
                     )
                     if (item.star) Text(
-                        "중요", color = FlagInk, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(start = 4.dp).rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = 3.dp),
+                        "중요", color = FlagInk, fontSize = fs, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = padV),
                     )
                 }
             }
             Text(
                 tagged(item.title, if (item.done) pal.sub else tagColor()), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
-                fontWeight = if ((item.urgent || item.star) && !item.done) FontWeight.ExtraBold else FontWeight.Normal,
+                fontWeight = if ((item.urgent || item.star) && !item.done) FontWeight.Bold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 onTextLayout = { lines = it.lineCount; titleH = it.size.height }, modifier = Modifier.weight(1f).padding(end = 4.dp),
                 maxLines = if (oneLine) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
