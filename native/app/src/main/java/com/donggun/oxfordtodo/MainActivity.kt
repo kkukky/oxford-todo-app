@@ -174,7 +174,7 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
         HorizontalDivider()
         StoragePane(db)
         HorizontalDivider()
-        var flagOn by remember { mutableStateOf(db.getSetting("flag_group", "0") == "1") }
+        var flagOn by remember { mutableStateOf(db.getSetting("flag_group", "1") == "1") }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("긴급·중요 항목을 먼저 보이기", style = MaterialTheme.typography.titleMedium)

@@ -152,7 +152,7 @@ private object FlagGroup { var on = false }
 private fun rank(i: Item) = (if (i.done) 4 else 0) + (if (FlagGroup.on) (if (i.urgent) 0 else 2) + (if (i.star) 0 else 1) else 0)
 
 fun visibleItems(db: Db, bucket: String, filter: String): List<Item> {
-    FlagGroup.on = db.getSetting("flag_group", "0") == "1"
+    FlagGroup.on = db.getSetting("flag_group", "1") == "1"
     val base = db.list(bucket).filter {
         when (filter) {
             "left" -> !it.done
@@ -704,7 +704,9 @@ private fun ItemBlock(
     Column(Modifier.fillMaxWidth().then(if (dragging) Modifier.background(pal.bg) else Modifier)) {
         if (editing) TitleEditor(item, bucket, onChange, onDone = { editing = false; onChange() })
         Row(
-            Modifier.fillMaxWidth().height(ROW * rows).ruled().clickable(onClick = { fm.clearFocus(); onToggle() })
+            Modifier.fillMaxWidth().height(ROW * rows)
+                .then(if (!item.done && item.urgent) Modifier.background(pal.urgentBg.copy(alpha = 0.12f)) else if (!item.done && item.star) Modifier.background(pal.gold.copy(alpha = 0.18f)) else Modifier)
+                .ruled().clickable(onClick = { fm.clearFocus(); onToggle() })
                 .pointerInput(item.id) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { dStart() }, onDrag = { c, a -> c.consume(); dMove(a.y) },
@@ -726,15 +728,15 @@ private fun ItemBlock(
             if (item.urgent || item.star) {
                 Row(Modifier.padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (item.urgent) Text(
-                        "급", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(3.dp)).background(pal.urgentBg).padding(horizontal = 6.dp, vertical = 2.dp),
+                        "긴급", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(horizontal = 7.dp, vertical = 3.dp),
                     )
-                    if (item.star) Text("★", color = pal.gold, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp))
+                    if (item.star) Text("★", color = pal.gold, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp))
                 }
             }
             Text(
                 tagged(item.title, if (item.done) pal.sub else tagColor()), color = if (item.done) pal.sub else pal.pen, fontSize = 18.sp, lineHeight = 24.sp, fontFamily = Gaegu,
-                fontWeight = if (item.urgent && !item.done) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if ((item.urgent || item.star) && !item.done) FontWeight.ExtraBold else FontWeight.Normal,
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 onTextLayout = { lines = it.lineCount; titleH = it.size.height }, modifier = Modifier.weight(1f).padding(end = 4.dp),
                 maxLines = if (oneLine) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis,
