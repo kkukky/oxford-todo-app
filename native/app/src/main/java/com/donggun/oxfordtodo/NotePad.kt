@@ -288,9 +288,9 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     title = if (showSettings) "설정" else titles[page], showFilters = listPage, filter = filter, onFilter = { filter = it },
                     showFold = listPage, foldLevel = foldLevel,
                     onFold = {
-                        foldLevel = (foldLevel + 1) % 4
+                        foldLevel = (foldLevel + 1) % 3
                         if (foldLevel == 1) (db.list("now") + db.list("later")).forEach { open[it.id] = true }
-                        else if (foldLevel >= 2) (db.list("now") + db.list("later")).forEach { open[it.id] = false }
+                        else if (foldLevel == 2) (db.list("now") + db.list("later")).forEach { open[it.id] = false }
                     },
                 )
                 if (showSettings) {
@@ -299,8 +299,8 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     CompositionLocalProvider(LocalDensity provides scaledD) {
                         HorizontalPager(pager, Modifier.weight(1f), userScrollEnabled = !lock) { p ->
                             when (p) {
-                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
-                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 3) { addReq = "" to addReq.second }
+                                0 -> ListPage("now", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "now") addReq.second else 0, quick && quickPage == 0, quickSel, foldLevel == 2) { addReq = "" to addReq.second }
+                                1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 2) { addReq = "" to addReq.second }
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 else -> Placeholder("AI 분석 — 3단계에서 만듭니다")
                             }
@@ -376,19 +376,13 @@ private fun Band(dark: Boolean, onDark: () -> Unit, onSettings: () -> Unit, lock
 }
 
 /** 글꼴에 화살표 글자가 없어도 보이도록 직접 그린 겹꺽쇠 (위: 접기, 아래: 펼치기) */
+/** 현재 보기 상태를 선 개수로 표시: 1줄=제목 한 줄로 접음, 2줄=보통, 3줄=모두 펼침 */
 @Composable
-private fun ChevronsIcon(up: Boolean, color: Color) {
+private fun LinesIcon(n: Int, color: Color) {
     Canvas(Modifier.size(18.dp)) {
         val u = size.width / 24f
-        val st = Stroke(width = 2f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        fun chev(y: Float) {
-            val p = androidx.compose.ui.graphics.Path().apply {
-                if (up) { moveTo(6f * u, (y + 6f) * u); lineTo(12f * u, y * u); lineTo(18f * u, (y + 6f) * u) }
-                else { moveTo(6f * u, y * u); lineTo(12f * u, (y + 6f) * u); lineTo(18f * u, y * u) }
-            }
-            drawPath(p, color, style = st)
-        }
-        if (up) { chev(5f); chev(12f) } else { chev(5f); chev(12f) }
+        val ys = when (n) { 1 -> listOf(12f); 2 -> listOf(8f, 16f); else -> listOf(5f, 12f, 19f) }
+        ys.forEach { y -> drawLine(color, Offset(4f * u, y * u), Offset(20f * u, y * u), strokeWidth = 2.4f * u, cap = StrokeCap.Round) }
     }
 }
 
@@ -520,7 +514,7 @@ private fun HeadRow(
             Box(
                 Modifier.size(34.dp).clip(CircleShape).border(1.2.dp, pal.rule, CircleShape).clickable { onFold() },
                 Alignment.Center,
-            ) { ChevronsIcon(up = foldLevel == 1 || foldLevel == 2, color = pal.ink)
+            ) { LinesIcon(when (foldLevel) { 2 -> 1; 0 -> 2; else -> 3 }, pal.ink)
                 }
         }
     }
