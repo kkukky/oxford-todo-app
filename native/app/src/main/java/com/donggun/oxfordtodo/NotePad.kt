@@ -731,7 +731,10 @@ private fun ItemBlock(
                         "긴급", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(horizontal = 7.dp, vertical = 3.dp),
                     )
-                    if (item.star) Text("★", color = pal.gold, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp))
+                    if (item.star) Text(
+                        "중요", color = FlagInk, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
                 }
             }
             Text(
@@ -803,8 +806,8 @@ private fun NewEditor(bucket: String, onDone: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
                 ) {
                     Text("${tf.text.length} / 1000", color = if (tf.text.length >= 1000) pal.urgentBg else pal.sub, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 8.dp))
-                    IconBtn("!", urgent) { urgent = !urgent }
-                    IconBtn(if (star) "★" else "☆", star) { star = !star }
+                    IconBtn("긴급", urgent) { urgent = !urgent }
+                    IconBtn("중요", star) { star = !star }
                     Box(Modifier.size(44.dp).clickable { finish() }, Alignment.Center) {
                         Text("✓", color = pal.pen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     }
@@ -863,8 +866,8 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
                     "${tf.text.length} / 1000", color = if (tf.text.length >= 1000) pal.urgentBg else pal.sub, fontSize = 12.sp,
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
                 )
-                IconBtn("!", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
-                IconBtn(if (item.star) "★" else "☆", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
+                IconBtn("긴급", item.urgent) { db.setFlag(item.id, "urgent", !item.urgent); onChange() }
+                IconBtn("중요", item.star) { db.setFlag(item.id, "star", !item.star); onChange() }
                 Box(Modifier.size(40.dp).clickable { finish(); db.move(item.id, if (bucket == "now") "later" else "now"); onChange() }, Alignment.Center) {
                     ArrowIcon(right = bucket == "now", color = pal.sub)
                 }
@@ -879,6 +882,8 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
 }
 
 /** 할 일을 새로 추가하면 올려서, 목록이 맨 위로 스크롤되게 한다 */
+internal val FlagInk = Color(0xFF3B2A00)
+
 internal object ScrollTop { val n = mutableIntStateOf(0) }
 
 /** 집중 모드: 이 할 일만 전체 화면으로 보여 주고 타이머를 돌린다 */
@@ -1111,11 +1116,14 @@ private fun Panel(item: Item, bucket: String, onChange: () -> Unit, onDelete: ()
 @Composable
 private fun IconBtn(label: String, on: Boolean, onClick: () -> Unit) {
     val pal = LocalPal.current
-    Box(Modifier.size(40.dp).clickable(onClick = onClick), Alignment.Center) {
-        if (on && label == "!") Text(
-            "!", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(pal.urgentBg).padding(horizontal = 9.dp, vertical = 3.dp),
-        ) else Text(label, color = if (on) pal.gold else pal.sub, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    val c = if (label == "긴급") pal.urgentBg else pal.gold
+    val shape = RoundedCornerShape(6.dp)
+    Box(Modifier.height(40.dp).widthIn(min = 44.dp).clickable(onClick = onClick), Alignment.Center) {
+        Text(
+            label, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold,
+            color = if (on) (if (label == "긴급") Color.White else FlagInk) else pal.sub,
+            modifier = (if (on) Modifier.clip(shape).background(c) else Modifier.border(1.dp, pal.rule, shape)).padding(horizontal = 9.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -1166,8 +1174,8 @@ private fun AddRow(bucket: String, onChange: () -> Unit, addReq: Int = 0, top: B
                         }.padding(horizontal = 12.dp, vertical = 7.dp),
                 )
                 Spacer(Modifier.weight(1f))
-                IconBtn(if (star) "★" else "☆", star) { star = !star }
-                IconBtn("!", urgent) { urgent = !urgent }
+                IconBtn("중요", star) { star = !star }
+                IconBtn("긴급", urgent) { urgent = !urgent }
                 Box(Modifier.size(40.dp).clickable { submit() }, Alignment.Center) {
                     Text("✓", color = pal.pen, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
@@ -1272,7 +1280,7 @@ private fun RankCard(modifier: Modifier, item: Item, onClick: () -> Unit) {
         Text(item.title, color = pal.pen, fontSize = 24.sp, lineHeight = 32.sp, fontFamily = Gaegu, fontWeight = FontWeight.Bold, maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         val first = item.description.lines().firstOrNull { it.isNotBlank() }
         if (first != null) Text(first, color = pal.sub, fontSize = 14.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-        val tags = listOfNotNull(if (item.urgent) "! 긴급" else null, if (item.star) "★ 중요" else null, if (item.stepsTotal > 0) "절차 ${item.stepsTotal}개" else null)
+        val tags = listOfNotNull(if (item.urgent) "긴급" else null, if (item.star) "중요" else null, if (item.stepsTotal > 0) "절차 ${item.stepsTotal}개" else null)
         if (tags.isNotEmpty()) Text(tags.joinToString("  ·  "), color = pal.sub, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
     }
 }

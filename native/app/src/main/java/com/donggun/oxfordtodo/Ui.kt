@@ -42,7 +42,7 @@ fun TodoPane(bucket: String, hint: String, modifier: Modifier = Modifier) {
                 ) {
                     Checkbox(it.done, { c -> db.toggleDone(it.id, c); reload() })
                     Text(
-                        (if (it.star) "★ " else "") + it.title + (if (it.urgent) "  급" else ""),
+                        (if (it.star) "[중요] " else "") + it.title + (if (it.urgent) "  [긴급]" else ""),
                         color = Ink, fontSize = 17.sp,
                         textDecoration = if (it.done) TextDecoration.LineThrough else null,
                     )
