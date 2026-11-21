@@ -733,7 +733,7 @@ private fun ItemBlock(
                     )
                     if (item.star) Text(
                         "중요", color = FlagInk, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(start = 4.dp).rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = 3.dp),
                     )
                 }
             }
@@ -882,7 +882,7 @@ private fun TitleEditor(item: Item, bucket: String, onChange: () -> Unit, onDone
 }
 
 /** 할 일을 새로 추가하면 올려서, 목록이 맨 위로 스크롤되게 한다 */
-internal val FlagInk = Color(0xFF3B2A00)
+internal val FlagInk = Color(0xFF1A44C2) // 호박색의 보색(파랑)
 
 internal object ScrollTop { val n = mutableIntStateOf(0) }
 
