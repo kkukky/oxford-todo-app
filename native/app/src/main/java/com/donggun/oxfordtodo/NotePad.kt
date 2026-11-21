@@ -730,16 +730,16 @@ private fun ItemBlock(
             if (item.urgent || item.star) {
                 // 둘 다 체크하면 긴급이 위, 중요가 아래로 쌓인다
                 val both = item.urgent && item.star
-                val fs = if (both) 10.sp else 12.sp
-                val padV = if (both) 1.dp else 3.dp
+                val fs = 10.sp // 하나만 있어도, 둘 다여도 같은 크기
+                val padV = 1.dp
                 Column(Modifier.padding(end = 6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (item.urgent) Text(
-                        "긴급", color = Color.White, fontSize = fs, fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(horizontal = 7.dp, vertical = padV),
+                        "긴급", color = Color.White, fontSize = fs, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.rotate(-3f).width(34.dp).clip(RoundedCornerShape(4.dp)).background(pal.urgentBg).padding(vertical = padV),
                     )
                     if (item.star) Text(
-                        "중요", color = FlagInk, fontSize = fs, fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.rotate(-3f).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(horizontal = 7.dp, vertical = padV),
+                        "중요", color = FlagInk, fontSize = fs, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.rotate(-3f).width(34.dp).clip(RoundedCornerShape(4.dp)).background(pal.gold).padding(vertical = padV),
                     )
                 }
             }
