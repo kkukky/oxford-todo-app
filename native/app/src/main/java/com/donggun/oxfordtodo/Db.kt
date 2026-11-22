@@ -18,7 +18,7 @@ data class LogRow(val ts: Long, val type: String, val text: String)
 data class AiRow(val id: String, val who: String, val label: String, val text: String, val applied: String)
 
 /** 로컬 SQLite. 스키마는 Supabase 동기화를 염두에 둔 구조(UUID, updated_at, deleted_at). */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 3) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -44,6 +44,11 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         )
         db.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         db.execSQL(
+            """CREATE TABLE IF NOT EXISTS now_notes(
+              id TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+        )
+        db.execSQL(
             """CREATE TABLE IF NOT EXISTS ai_msgs(
               id TEXT PRIMARY KEY, item_id TEXT NOT NULL, who TEXT NOT NULL, label TEXT NOT NULL DEFAULT '',
               text TEXT NOT NULL DEFAULT '', applied TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
@@ -52,6 +57,13 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     }
 
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+        if (o < 4) {
+        db.execSQL(
+                """CREATE TABLE IF NOT EXISTS now_notes(
+                  id TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+            )
+        }
         if (o < 3) {
             db.execSQL(
             """CREATE TABLE IF NOT EXISTS ai_msgs(
@@ -287,6 +299,31 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     fun aiClear(itemId: String) {
         val v = ContentValues().apply { put("deleted_at", now()); put("updated_at", now()) }
         writableDatabase.update("ai_msgs", v, "item_id=? AND deleted_at IS NULL", arrayOf(itemId))
+    }
+
+    // ---------- Now 기록 (잠금화면 Now 버튼으로 남긴 지금 생각, 시간순, 동기화에 포함) ----------
+    class NowRow(val id: String, val text: String, val at: Long)
+
+    fun nowAdd(text: String): String {
+        val t = text.trim().take(1000)
+        if (t.isEmpty()) return ""
+        val id = UUID.randomUUID().toString()
+        val v = ContentValues().apply { put("id", id); put("text", t); put("created_at", now()); put("updated_at", now()) }
+        writableDatabase.insert("now_notes", null, v)
+        return id
+    }
+
+    /** 최근 것이 위로 */
+    fun nowList(): List<NowRow> {
+        val out = ArrayList<NowRow>()
+        readableDatabase.rawQuery("SELECT id,text,created_at FROM now_notes WHERE deleted_at IS NULL ORDER BY created_at DESC,id", null)
+            .use { c -> while (c.moveToNext()) out.add(NowRow(c.getString(0), c.getString(1), c.getLong(2))) }
+        return out
+    }
+
+    fun nowDelete(id: String) {
+        val v = ContentValues().apply { put("deleted_at", now()); put("updated_at", now()) }
+        writableDatabase.update("now_notes", v, "id=?", arrayOf(id))
     }
 
     fun archived(): List<Item> {

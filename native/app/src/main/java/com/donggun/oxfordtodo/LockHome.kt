@@ -34,11 +34,11 @@ private val LK_NAVY = Color(0xFF1C2A4A)
 
 /**
  * 새 잠금화면. 검은 배경에 시계 · 메시지(누르면 횟수 +1) · 횟수/수정 · 메모 입력칸 · Now / 할일추가.
- * Now는 '지금 할 일' 목록 화면으로, 할일추가는 입력한 내용을 '지금 할 일' 맨 위에 새 할 일로 넣는다.
- * 횟수는 하루 단위로 0부터 다시 센다.
+ * Now는 입력한 내용을 '지금 생각'으로 시간과 함께 기록하고(앱의 Now 페이지에서 시간순으로 봄), 할일추가는 '지금 할 일' 맨 위에 새 할 일로 넣는다.
+ * 횟수는 "오늘 / 누적"으로 보인다(오늘은 하루마다 0부터).
  */
 @Composable
-fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
+fun LockHome(onClose: () -> Unit) {
     val ctx = LocalContext.current
     val db = remember { Db.get(ctx) }
     val lockSec = remember { (db.getSetting("lock_sec", "10").toIntOrNull() ?: 10).coerceIn(5, 600) }
@@ -55,6 +55,7 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
     val today = remember(now) { SimpleDateFormat("yyyyMMdd", Locale.KOREA).format(now) }
     var message by remember { mutableStateOf(db.getSetting("lock_msg", "오늘도 한 걸음씩")) }
     var count by remember { mutableIntStateOf(if (db.getSetting("lock_cnt_day", "") == today) (db.getSetting("lock_cnt", "0").toIntOrNull() ?: 0) else 0) }
+    var total by remember { mutableIntStateOf(maxOf(db.getSetting("lock_total", "0").toIntOrNull() ?: 0, count)) }
     var editing by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var flash by remember { mutableStateOf("") }
@@ -62,8 +63,8 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
 
     fun bump() {
         if (db.getSetting("lock_cnt_day", "") != today) count = 0
-        count++
-        db.setSetting("lock_cnt", count.toString()); db.setSetting("lock_cnt_day", today)
+        count++; total++
+        db.setSetting("lock_cnt", count.toString()); db.setSetting("lock_cnt_day", today); db.setSetting("lock_total", total.toString())
     }
     fun submit() {
         val v = text.trim()
@@ -76,9 +77,16 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
             val id = db.add(lines.first(), "now", false, false, true)
             val rest = lines.drop(1).joinToString("\n").trim()
             if (id.isNotEmpty() && rest.isNotEmpty()) db.setDesc(id, rest)
-            text = ""; flash = "지금 할 일에 추가했어요"
+            text = ""; flash = "할 일 목록에 추가했어요"
             SyncWorker.once(ctx)
         }
+    }
+    fun record() {
+        val v = text.trim()
+        if (v.isEmpty()) { flash = "내용을 적어 주세요"; return }
+        if (editing) { flash = "메시지 수정 중이에요. 저장이나 취소를 눌러 주세요"; return }
+        db.nowAdd(v); text = ""; flash = "Now에 기록했어요"
+        SyncWorker.once(ctx)
     }
 
     Column(
@@ -93,12 +101,12 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
         }
         Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(
-                if (flash.isNotEmpty()) flash else message, color = if (flash.isNotEmpty()) LK_BEIGE else LK_INK, fontSize = 32.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = 44.sp,
-                modifier = Modifier.heightIn(min = 48.dp).clip12().clickable(enabled = flash.isEmpty()) { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
+                message, color = LK_INK, fontSize = 32.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = 44.sp,
+                modifier = Modifier.heightIn(min = 48.dp).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
             )
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${count}회", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
+                Text("$count / $total", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
                 Spacer(Modifier.weight(1f))
                 Box(
                     Modifier.height(36.dp).clip(RoundedCornerShape(50)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(50))
@@ -118,7 +126,7 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
-                Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFF666666), RoundedCornerShape(14.dp)).clickable { onNow() },
+                Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFF666666), RoundedCornerShape(14.dp)).clickable { record() },
                 Alignment.Center,
             ) { Text("Now", color = LK_INK, fontSize = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp) }
             Box(
@@ -126,6 +134,10 @@ fun LockHome(onNow: () -> Unit, onClose: () -> Unit) {
                 Alignment.Center,
             ) { Text(if (editing) "저장" else "할일추가", color = LK_NAVY, fontSize = 18.sp, fontWeight = FontWeight.Medium) }
         }
+        Text(
+            flash, color = LK_BEIGE, fontSize = 14.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().height(28.dp).padding(top = 8.dp),
+        )
     }
 }
 

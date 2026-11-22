@@ -67,6 +67,14 @@ fun SettingsPane(onChanged: () -> Unit = {}) {
                 if (v) ScreenOnService.start(ctx) else ScreenOnService.stop(ctx)
             })
         }
+        var lockStyle by remember { mutableStateOf(db.getSetting("lock_style", "new")) }
+        Text("잠금화면 모양", style = MaterialTheme.typography.titleMedium)
+        Text("새 잠금화면: 검은 배경에 시계 · 메시지 · 입력칸. 이전 잠금화면: '지금 할 일' 목록이 바로 보여요.", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("new" to "새 잠금화면", "old" to "이전 잠금화면").forEach { (k, l) ->
+                FilterChip(selected = lockStyle == k, onClick = { lockStyle = k; db.setSetting("lock_style", k) }, label = { Text(l) })
+            }
+        }
         HorizontalDivider()
         Text("필요한 권한", style = MaterialTheme.typography.titleMedium)
         Text(if (overlay) "✓ 다른 앱 위에 표시: 허용됨" else "✗ 다른 앱 위에 표시: 꺼짐 (화면이 켜질 때 바로 뜨려면 필요)")
