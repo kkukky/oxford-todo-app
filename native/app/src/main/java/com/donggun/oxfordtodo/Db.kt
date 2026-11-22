@@ -321,6 +321,13 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
         return out
     }
 
+    fun nowUpdate(id: String, text: String) {
+        val t = text.trim().take(1000)
+        if (t.isEmpty()) return
+        val v = ContentValues().apply { put("text", t); put("updated_at", now()) }
+        writableDatabase.update("now_notes", v, "id=?", arrayOf(id))
+    }
+
     fun nowDelete(id: String) {
         val v = ContentValues().apply { put("deleted_at", now()); put("updated_at", now()) }
         writableDatabase.update("now_notes", v, "id=?", arrayOf(id))

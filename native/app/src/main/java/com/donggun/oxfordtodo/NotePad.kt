@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -310,7 +312,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                     val (total, done) = remember(tick) { db.counts() }
                     val arcN = remember(tick) { db.archived().size }
                     val nowN = remember(tick) { db.nowList().size }
-                    if (!imeOn) Footer(page, total, done, arcN, nowN, if (lock) 0 else 5, {
+                    if (!imeOn) Footer(page, total, done, arcN, nowN, if (lock) 0 else 5, { i -> scope.launch { pager.scrollToPage(i) } }, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
                     }, { showRank = true }, quick, quickPage, quickSel.size, flash, {
@@ -523,7 +525,7 @@ private fun HeadRow(
 }
 
 @Composable
-private fun Footer(page: Int, total: Int, done: Int, archived: Int, nowN: Int, dots: Int, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, quickPage: Int, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
+private fun Footer(page: Int, total: Int, done: Int, archived: Int, nowN: Int, dots: Int, onGo: (Int) -> Unit, onClear: () -> Unit, onRank: () -> Unit, quick: Boolean, quickPage: Int, selN: Int, flash: String, onQuick: () -> Unit, onAdd: () -> Unit) {
     val pal = LocalPal.current
     val btn = Modifier.size(width = 62.dp, height = 44.dp)
     val navB = with(LocalDensity.current) {
@@ -546,12 +548,30 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, nowN: Int, d
                 else if (flash.isNotEmpty()) flash else if (quick) (if (quickPage == 1) "지금 할 일로 올릴 일을 고르세요" else "나중으로 보낼 일을 고르세요") else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
                 color = pal.sub, fontSize = 10.sp,
             )
-            Row {
+            Row(
+                Modifier.pointerInput(dots) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        fun idx(x: Float) = (x / size.width * dots).toInt().coerceIn(0, dots - 1)
+                        var last = idx(down.position.x)
+                        onGo(last)
+                        do {
+                            val ev = awaitPointerEvent()
+                            val c = ev.changes.first()
+                            val k = idx(c.position.x)
+                            if (k != last) { last = k; onGo(k) }
+                            c.consume()
+                        } while (ev.changes.any { it.pressed })
+                    }
+                },
+            ) {
                 repeat(dots) { i ->
-                    Box(
-                        Modifier.padding(4.dp).size(10.dp).clip(CircleShape)
-                            .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
-                    )
+                    Box(Modifier.size(width = 36.dp, height = 36.dp), Alignment.Center) {
+                        Box(
+                            Modifier.size(10.dp).clip(CircleShape)
+                                .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
+                        )
+                    }
                 }
             }
         }
@@ -1223,6 +1243,7 @@ private fun NowPage(tick: Int, onChange: () -> Unit) {
     val pal = LocalPal.current
     val rows = remember(tick) { db.nowList() }
     var del by remember { mutableStateOf<Db.NowRow?>(null) }
+    var draft by remember { mutableStateOf("") }
     if (rows.isEmpty()) { Placeholder("잠금화면에서 Now를 누르면\n지금 생각이 여기에 시간순으로 쌓여요"); return }
     val dayF = remember { java.text.SimpleDateFormat("M월 d일 EEEE", java.util.Locale.KOREA) }
     val timeF = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA) }
@@ -1234,7 +1255,7 @@ private fun NowPage(tick: Int, onChange: () -> Unit) {
                 lastDay = d
                 Text(d, color = pal.sub, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().ruled().padding(start = MARGIN + 10.dp, top = 10.dp, bottom = 4.dp))
             }
-            Row(Modifier.fillMaxWidth().ruled().clickable { del = r }.padding(start = MARGIN + 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)) {
+            Row(Modifier.fillMaxWidth().ruled().clickable { del = r; draft = r.text }.padding(start = MARGIN + 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)) {
                 Text(timeF.format(java.util.Date(r.at)), color = pal.sub, fontSize = 13.sp, modifier = Modifier.width(48.dp).padding(top = 3.dp))
                 Text(r.text, color = pal.pen, fontSize = 18.sp, fontFamily = Gaegu, modifier = Modifier.weight(1f))
             }
@@ -1243,10 +1264,15 @@ private fun NowPage(tick: Int, onChange: () -> Unit) {
     del?.let { r ->
         AlertDialog(
             onDismissRequest = { del = null },
-            title = { Text("이 기록을 지울까요?") },
-            text = { Text(r.text.take(60)) },
-            confirmButton = { TextButton({ db.nowDelete(r.id); del = null; onChange() }) { Text("지우기") } },
-            dismissButton = { TextButton({ del = null }) { Text("취소") } },
+            title = { Text("Now 기록 수정") },
+            text = { androidx.compose.material3.OutlinedTextField(draft, { draft = it }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 8) },
+            confirmButton = { TextButton({ if (draft.isNotBlank()) { db.nowUpdate(r.id, draft); del = null; onChange() } }) { Text("저장") } },
+            dismissButton = {
+                Row {
+                    TextButton({ db.nowDelete(r.id); del = null; onChange() }) { Text("지우기") }
+                    TextButton({ del = null }) { Text("취소") }
+                }
+            },
         )
     }
 }
