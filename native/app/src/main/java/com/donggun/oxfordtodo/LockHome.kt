@@ -37,9 +37,11 @@ private val LK_NAVY = Color(0xFF1C2A4A)
  * Now는 입력한 내용을 '지금 생각'으로 시간과 함께 기록하고(앱의 Now 페이지에서 시간순으로 봄), 할일추가는 '지금 할 일' 맨 위에 새 할 일로 넣는다.
  * 횟수는 "오늘 / 누적"으로 보인다(오늘은 하루마다 0부터).
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun LockHome(onClose: () -> Unit) {
     val ctx = LocalContext.current
+    val imeOn = WindowInsets.isImeVisible
     val db = remember { Db.get(ctx) }
     val lockSec = remember { (db.getSetting("lock_sec", "10").toIntOrNull() ?: 10).coerceIn(5, 600) }
     LaunchedEffect(Unit) {
@@ -95,16 +97,16 @@ fun LockHome(onClose: () -> Unit) {
             .statusBarsPadding().navigationBarsPadding().imePadding()
             .padding(start = 28.dp, end = 28.dp, top = 40.dp, bottom = 20.dp),
     ) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!imeOn) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(SimpleDateFormat("HH:mm", Locale.KOREA).format(now), color = LK_INK, fontSize = 88.sp, fontWeight = FontWeight.Light, letterSpacing = 2.sp)
             Text(SimpleDateFormat("M월 d일 EEEE", Locale.KOREA).format(now), color = LK_SUB, fontSize = 16.sp)
         }
-        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(
+        Column((if (imeOn) Modifier else Modifier.weight(1f)).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            if (!imeOn) Text(
                 message, color = LK_INK, fontSize = 32.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = 44.sp,
                 modifier = Modifier.heightIn(min = 48.dp).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(if (imeOn) 0.dp else 10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$count / $total", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
                 Spacer(Modifier.weight(1f))
@@ -115,7 +117,7 @@ fun LockHome(onClose: () -> Unit) {
                 ) { Text(if (editing) "취소" else "수정", color = Color(0xFFD6D2C4), fontSize = 14.sp) }
             }
         }
-        Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF3D3D3D), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Box((if (imeOn) Modifier.weight(1f) else Modifier.height(150.dp)).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF3D3D3D), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
             if (text.isEmpty()) Text(if (editing) "새 메시지를 적으세요" else "메모를 입력하세요", color = LK_GRAY, fontSize = 16.sp)
             BasicTextField(
                 value = text, onValueChange = { Idle.poke(); text = it.take(1000) }, modifier = Modifier.fillMaxSize(),
