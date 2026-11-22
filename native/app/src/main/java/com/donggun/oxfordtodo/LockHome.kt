@@ -106,8 +106,8 @@ fun LockHome(onClose: () -> Unit) {
                 message, color = LK_INK, fontSize = 32.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = 44.sp,
                 modifier = Modifier.heightIn(min = 48.dp).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
             )
-            Spacer(Modifier.height(if (imeOn) 0.dp else 10.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (!imeOn) Spacer(Modifier.height(10.dp))
+            if (!imeOn) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$count / $total", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
                 Spacer(Modifier.weight(1f))
                 Box(
