@@ -123,7 +123,10 @@ fun LockHome(onClose: () -> Unit) {
                 keyboardOptions = KeyboardOptions.Default,
             )
         }
-        Spacer(Modifier.height(14.dp))
+        Text(
+            flash, color = LK_BEIGE, fontSize = 14.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().height(34.dp).padding(top = 8.dp),
+        )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
                 Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFF666666), RoundedCornerShape(14.dp)).clickable { record() },
@@ -134,14 +137,6 @@ fun LockHome(onClose: () -> Unit) {
                 Alignment.Center,
             ) { Text(if (editing) "저장" else "할일추가", color = LK_NAVY, fontSize = 18.sp, fontWeight = FontWeight.Medium) }
         }
-        Text(
-            flash, color = LK_BEIGE, fontSize = 14.sp, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().height(28.dp).padding(top = 8.dp),
-        )
-        Box(
-            Modifier.fillMaxWidth().height(27.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(10.dp)).clickable { onClose() },
-            Alignment.Center,
-        ) { Text("닫기", color = Color(0xFF9A9A9A), fontSize = 13.sp) }
     }
 }
 
