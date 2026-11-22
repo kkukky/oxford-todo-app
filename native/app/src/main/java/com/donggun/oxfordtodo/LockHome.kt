@@ -85,7 +85,7 @@ fun LockHome(onClose: () -> Unit) {
         val v = text.trim()
         if (v.isEmpty()) { flash = "내용을 적어 주세요"; return }
         if (editing) { flash = "메시지 수정 중이에요. 저장이나 취소를 눌러 주세요"; return }
-        db.nowAdd(v); text = ""; flash = "Now에 기록했어요"
+        db.nowAdd(v); text = ""; flash = "now에 기록되었습니다"
         SyncWorker.once(ctx)
     }
 
@@ -138,6 +138,10 @@ fun LockHome(onClose: () -> Unit) {
             flash, color = LK_BEIGE, fontSize = 14.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().height(28.dp).padding(top = 8.dp),
         )
+        Box(
+            Modifier.fillMaxWidth().height(27.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(10.dp)).clickable { onClose() },
+            Alignment.Center,
+        ) { Text("닫기", color = Color(0xFF9A9A9A), fontSize = 13.sp) }
     }
 }
 
