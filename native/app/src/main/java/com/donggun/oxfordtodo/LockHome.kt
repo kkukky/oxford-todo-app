@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
@@ -72,7 +73,7 @@ fun LockHome(onClose: () -> Unit) {
         val v = text.trim()
         if (v.isEmpty()) { flash = if (editing) "메시지를 적어 주세요" else "내용을 적어 주세요"; return }
         if (editing) {
-            message = v.lines().first().take(60); db.setSetting("lock_msg", message)
+            message = v.take(300); db.setSetting("lock_msg", message)
             editing = false; text = ""; flash = "메시지를 바꿨어요"
         } else {
             val lines = v.lines()
@@ -102,10 +103,15 @@ fun LockHome(onClose: () -> Unit) {
             Text(SimpleDateFormat("M월 d일 EEEE", Locale.KOREA).format(now), color = LK_SUB, fontSize = 16.sp)
         }
         Column((if (imeOn) Modifier else Modifier.weight(1f)).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            if (!imeOn) Text(
-                message, color = LK_INK, fontSize = 32.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = 44.sp,
-                modifier = Modifier.heightIn(min = 48.dp).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
-            )
+            if (!imeOn) BoxWithConstraints(Modifier.weight(1f, fill = false).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                var fs by remember(message, maxHeight, maxWidth) { mutableStateOf(32f) }
+                Text(
+                    message, color = LK_INK, fontSize = fs.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = (fs * 1.375f).sp,
+                    overflow = TextOverflow.Clip,
+                    onTextLayout = { if (it.didOverflowHeight && fs > 12f) fs = (fs - 1f).coerceAtLeast(12f) },
+                    modifier = Modifier.heightIn(min = 48.dp, max = maxHeight).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
             if (!imeOn) Spacer(Modifier.height(10.dp))
             if (!imeOn) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$count / $total", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
