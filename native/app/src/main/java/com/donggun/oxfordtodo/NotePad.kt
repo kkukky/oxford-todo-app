@@ -566,7 +566,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, nowN: Int, d
                 },
             ) {
                 repeat(dots) { i ->
-                    Box(Modifier.size(width = 36.dp, height = 36.dp), Alignment.Center) {
+                    Box(Modifier.size(width = 20.dp, height = 36.dp), Alignment.Center) {
                         Box(
                             Modifier.size(10.dp).clip(CircleShape)
                                 .then(if (i == page) Modifier.background(pal.ink) else Modifier.border(1.8.dp, pal.rule, CircleShape))
