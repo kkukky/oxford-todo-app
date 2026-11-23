@@ -776,7 +776,7 @@ private fun ItemBlock(
                 val d = ageDays(item.createdAt)
                 Text(
                     agoShort(item.createdAt), fontSize = 11.sp, fontWeight = if (d >= 7) FontWeight.Bold else FontWeight.Normal,
-                    color = if (d >= 30) pal.urgentBg else if (d >= 7) pal.accent else pal.sub, modifier = Modifier.padding(end = 4.dp),
+                    color = if (d >= 21) Color(0xFFB3261E) else if (d >= 14) Color(0xFFD2691E) else if (d >= 7) Color(0xFFB08900) else pal.sub, modifier = Modifier.padding(end = 4.dp),
                 )
             }
             if (item.stepsTotal > 0) Text(
