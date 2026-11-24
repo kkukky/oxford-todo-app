@@ -123,8 +123,12 @@ fun LockHome(onClose: () -> Unit) {
                 ) { Text(if (editing) "취소" else "수정", color = Color(0xFFD6D2C4), fontSize = 14.sp) }
             }
         }
+        Text(
+            "그것은 바로 내가 이루고자 하는 것을\n하루에 100번씩, 100일 동안 중얼거리는 것이었다.",
+            color = Color(0xFFA8A496), fontSize = 13.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, bottom = 12.dp),
+        )
         Box((if (imeOn) Modifier.weight(1f) else Modifier.height(150.dp)).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF3D3D3D), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
-            if (text.isEmpty()) Text(if (editing) "새 메시지를 적으세요" else "메모를 입력하세요", color = LK_GRAY, fontSize = 16.sp)
             BasicTextField(
                 value = text, onValueChange = { Idle.poke(); text = it.take(1000) }, modifier = Modifier.fillMaxSize(),
                 textStyle = TextStyle(color = LK_INK, fontSize = 16.sp, lineHeight = 24.sp), cursorBrush = SolidColor(LK_BEIGE),
