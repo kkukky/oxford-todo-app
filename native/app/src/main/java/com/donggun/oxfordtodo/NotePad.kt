@@ -220,7 +220,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var pendingDelete by remember { mutableStateOf<DeleteReq?>(null) }
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState { if (lock) 1 else 5 }
+    val pager = rememberPagerState { if (lock) 1 else 6 }
     val fm = LocalFocusManager.current
     remember { FontPref.load(ctx) }
     val baseD = LocalDensity.current
@@ -235,7 +235,7 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
     var wasIme by remember { mutableStateOf(false) }
     LaunchedEffect(imeOn) { if (wasIme && !imeOn) fm.clearFocus(); wasIme = imeOn }
     val pal = if (dark) DarkPal else LightPal
-    val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석", "Now")
+    val titles = listOf("지금 할 일", "나중 할 일", "보관함", "AI 분석", "Now", "메시지")
 
     val lifeOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifeOwner) {
@@ -305,14 +305,15 @@ fun NotePadApp(lock: Boolean = false, onOpenApp: () -> Unit = {}, onClose: () ->
                                 1 -> ListPage("later", filter, tick, open, { tickLocal++ }, { askDelete(it, it[0].title) }, if (addReq.first == "later") addReq.second else 0, quick && quickPage == 1, quickSel, foldLevel == 2) { addReq = "" to addReq.second }
                                 2 -> ArchivePage(tick) { tickLocal++ }
                                 3 -> Placeholder("AI 분석 — 3단계에서 만듭니다")
-                                else -> NowPage(tick) { tickLocal++ }
+                                4 -> NowPage(tick) { tickLocal++ }
+                                else -> MessagePage(tick) { tickLocal++ }
                             }
                         }
                     }
                     val (total, done) = remember(tick) { db.counts() }
                     val arcN = remember(tick) { db.archived().size }
                     val nowN = remember(tick) { db.nowList().size }
-                    if (!imeOn) Footer(page, total, done, arcN, nowN, if (lock) 0 else 5, { i -> scope.launch { pager.scrollToPage(i) } }, {
+                    if (!imeOn) Footer(page, total, done, arcN, nowN, if (lock) 0 else 6, { i -> scope.launch { pager.scrollToPage(i) } }, {
                         val doneItems = (db.list("now") + db.list("later")).filter { it.done }
                         askDelete(doneItems, "완료한 ${doneItems.size}개")
                     }, { showRank = true }, quick, quickPage, quickSel.size, flash, {
@@ -544,7 +545,7 @@ private fun Footer(page: Int, total: Int, done: Int, archived: Int, nowN: Int, d
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else if (page == 4) (if (nowN > 0) "Now 기록 ${nowN}개" else "Now 기록 없음") else "AI 분석")
+                if (page >= 2) (if (page == 2) (if (archived > 0) "보관 ${archived}개" else "보관한 기록 없음") else if (page == 4) (if (nowN > 0) "Now 기록 ${nowN}개" else "Now 기록 없음") else if (page == 5) "잠금화면 메시지" else "AI 분석")
                 else if (flash.isNotEmpty()) flash else if (quick) (if (quickPage == 1) "지금 할 일로 올릴 일을 고르세요" else "나중으로 보낼 일을 고르세요") else if (total > 0) "전체 ${total}개 중 ${done}개 완료" else "할 일을 적어 보세요",
                 color = pal.sub, fontSize = 10.sp,
             )
@@ -1452,6 +1453,52 @@ private fun RankDialog(db: Db, onClose: () -> Unit, onApplied: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+
+/** 잠금화면 가운데 메시지와 글자 크기를 관리한다. 저장 값은 동기화에 포함되어 새로 설치해도 불러온다. */
+@Composable
+private fun MessagePage(tick: Int, onChange: () -> Unit) {
+    val ctx = LocalContext.current
+    val db = Db.get(ctx)
+    val pal = LocalPal.current
+    val cfg = remember(tick) { db.lockGet() }
+    var text by remember(tick) { mutableStateOf(cfg.text) }
+    var fs by remember(tick) { mutableFloatStateOf(cfg.fs) }
+    var note by remember { mutableStateOf("") }
+    LaunchedEffect(note) { if (note.isNotEmpty()) { kotlinx.coroutines.delay(2000); note = "" } }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = MARGIN + 10.dp, end = 14.dp, top = 12.dp, bottom = 16.dp)) {
+        Text("잠금화면 미리보기", color = pal.sub, fontSize = 12.sp)
+        Box(
+            Modifier.padding(top = 6.dp).fillMaxWidth().height(190.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black).padding(12.dp),
+            Alignment.Center,
+        ) {
+            Text(text.ifBlank { "오늘도 한 걸음씩" }, color = Color(0xFFF3EFE2), fontSize = fs.sp, lineHeight = (fs * 1.375f).sp, fontFamily = Gaegu, textAlign = TextAlign.Center, overflow = TextOverflow.Clip)
+        }
+        Text("너무 길면 잠금화면에서 자동으로 더 작아져요", color = pal.sub, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("글자 크기", color = pal.ink, fontSize = 14.sp)
+            androidx.compose.material3.Slider(
+                value = fs, onValueChange = { fs = Math.round(it).toFloat() }, onValueChangeFinished = { db.lockSetFs(fs); SyncWorker.once(ctx); onChange() },
+                valueRange = 14f..64f, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            )
+            Text(fs.toInt().toString(), color = pal.ink, fontSize = 14.sp, modifier = Modifier.width(28.dp), textAlign = TextAlign.End)
+        }
+        androidx.compose.material3.OutlinedTextField(
+            value = text, onValueChange = { text = it.take(300) }, label = { Text("메시지") },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp), minLines = 3, maxLines = 8,
+            supportingText = { Text("${text.length}/300 · 줄바꿈 가능") },
+        )
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("오늘 ${if (cfg.day == java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.KOREA).format(java.util.Date())) cfg.cnt else 0} / 누적 ${maxOf(cfg.total, cfg.cnt)}", color = pal.sub, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            if (note.isNotEmpty()) Text(note, color = pal.sub, fontSize = 13.sp, modifier = Modifier.padding(end = 10.dp))
+            androidx.compose.material3.Button(
+                onClick = { db.lockSetText(text); db.lockSetFs(fs); SyncWorker.once(ctx); note = "저장했어요"; onChange() },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = pal.ink, contentColor = pal.bg),
+            ) { Text("저장") }
         }
     }
 }

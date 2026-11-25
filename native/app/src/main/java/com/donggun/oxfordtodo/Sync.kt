@@ -32,7 +32,8 @@ object Sync {
     private val BOOLS = setOf("star", "urgent", "done")
     private data class T(val name: String, val cols: List<String>)
     private val NOW_COLS = listOf("id", "text", "created_at", "updated_at", "deleted_at")
-    private val TABLES = listOf(T("items", ITEM_COLS), T("steps", STEP_COLS), T("logs", LOG_COLS), T("ai_msgs", AI_COLS), T("now_notes", NOW_COLS))
+    private val LOCK_COLS = listOf("id", "text", "font_size", "cnt", "total", "cnt_day", "created_at", "updated_at", "deleted_at")
+    private val TABLES = listOf(T("items", ITEM_COLS), T("steps", STEP_COLS), T("logs", LOG_COLS), T("ai_msgs", AI_COLS), T("now_notes", NOW_COLS), T("lock_cfg", LOCK_COLS))
 
     fun folderOn(db: Db) = db.getSetting("fs_tree", "").isNotEmpty()
     fun driveOn(db: Db) = db.getSetting("gd_on", "0") == "1"

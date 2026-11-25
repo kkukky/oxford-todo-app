@@ -56,27 +56,28 @@ fun LockHome(onClose: () -> Unit) {
     LaunchedEffect(Unit) { while (true) { now = Date(); kotlinx.coroutines.delay(10_000) } }
 
     val today = remember(now) { SimpleDateFormat("yyyyMMdd", Locale.KOREA).format(now) }
-    var message by remember { mutableStateOf(db.getSetting("lock_msg", "오늘도 한 걸음씩")) }
-    var count by remember { mutableIntStateOf(if (db.getSetting("lock_cnt_day", "") == today) (db.getSetting("lock_cnt", "0").toIntOrNull() ?: 0) else 0) }
-    var total by remember { mutableIntStateOf(maxOf(db.getSetting("lock_total", "0").toIntOrNull() ?: 0, count)) }
+    val cfg = remember { db.lockGet() }
+    var message by remember { mutableStateOf(cfg.text) }
+    var count by remember { mutableIntStateOf(if (cfg.day == today) cfg.cnt else 0) }
+    var total by remember { mutableIntStateOf(maxOf(cfg.total, count)) }
     var editing by remember { mutableStateOf(false) }
-    var maxFs by remember { mutableFloatStateOf((db.getSetting("lock_fs", "32").toFloatOrNull() ?: 32f).coerceIn(14f, 64f)) }
-    fun saveFs() { db.setSetting("lock_fs", maxFs.toInt().toString()) }
+    var maxFs by remember { mutableFloatStateOf(cfg.fs) }
+    fun saveFs() { db.lockSetFs(maxFs); SyncWorker.once(ctx) }
     val hide = imeOn && !editing
     var text by remember { mutableStateOf("") }
     var flash by remember { mutableStateOf("") }
     LaunchedEffect(flash) { if (flash.isNotEmpty()) { kotlinx.coroutines.delay(2000); flash = "" } }
 
     fun bump() {
-        if (db.getSetting("lock_cnt_day", "") != today) count = 0
+        if (cfg.day != today && count > 0 && db.lockGet().day != today) count = 0
         count++; total++
-        db.setSetting("lock_cnt", count.toString()); db.setSetting("lock_cnt_day", today); db.setSetting("lock_total", total.toString())
+        db.lockSetCount(count, total, today)
     }
     fun submit() {
         val v = text.trim()
         if (v.isEmpty()) { flash = if (editing) "메시지를 적어 주세요" else "내용을 적어 주세요"; return }
         if (editing) {
-            message = v.take(300); db.setSetting("lock_msg", message)
+            message = v.take(300); db.lockSetText(message); SyncWorker.once(ctx)
             editing = false; text = ""; flash = "메시지를 바꿨어요"
         } else {
             val lines = v.lines()

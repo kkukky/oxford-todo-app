@@ -18,7 +18,7 @@ data class LogRow(val ts: Long, val type: String, val text: String)
 data class AiRow(val id: String, val who: String, val label: String, val text: String, val applied: String)
 
 /** 로컬 SQLite. 스키마는 Supabase 동기화를 염두에 둔 구조(UUID, updated_at, deleted_at). */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 4) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", null, 5) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -54,9 +54,32 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
               text TEXT NOT NULL DEFAULT '', applied TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
         )
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS lock_cfg(
+              id TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '', font_size TEXT NOT NULL DEFAULT '32', cnt TEXT NOT NULL DEFAULT '0',
+              total TEXT NOT NULL DEFAULT '0', cnt_day TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+        if (o < 5) {
+            db.execSQL(
+            """CREATE TABLE IF NOT EXISTS lock_cfg(
+              id TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '', font_size TEXT NOT NULL DEFAULT '32', cnt TEXT NOT NULL DEFAULT '0',
+              total TEXT NOT NULL DEFAULT '0', cnt_day TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
+              updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER, synced_at INTEGER NOT NULL DEFAULT 0)"""
+        )
+            // 예전 설정값(lock_msg 등)이 있으면 지금 시각으로 옮겨 이 기기 값이 최신이 되게 한다
+            fun s(k: String): String? = db.rawQuery("SELECT value FROM settings WHERE key=?", arrayOf(k)).use { if (it.moveToFirst()) it.getString(0) else null }
+            val old = s("lock_msg")
+            val v = ContentValues().apply {
+                put("id", "main"); put("text", old ?: "오늘도 한 걸음씩"); put("font_size", s("lock_fs") ?: "32")
+                put("cnt", s("lock_cnt") ?: "0"); put("total", s("lock_total") ?: "0"); put("cnt_day", s("lock_cnt_day") ?: "")
+                put("created_at", System.currentTimeMillis()); put("updated_at", if (old != null) System.currentTimeMillis() else 0L)
+            }
+            db.insertWithOnConflict("lock_cfg", null, v, SQLiteDatabase.CONFLICT_IGNORE)
+        }
         if (o < 4) {
         db.execSQL(
                 """CREATE TABLE IF NOT EXISTS now_notes(
@@ -302,6 +325,28 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "todo.db", nu
     }
 
     // ---------- Now 기록 (잠금화면 Now 버튼으로 남긴 지금 생각, 시간순, 동기화에 포함) ----------
+    class LockCfg(val text: String, val fs: Float, val cnt: Int, val total: Int, val day: String)
+
+    /** 잠금화면 가운데 메시지·글자 크기·횟수. 행이 없으면 기본값을 updated_at=0으로 넣어, 동기화로 오는 최신 값이 항상 이기게 한다. */
+    fun lockGet(): LockCfg {
+        fun read(): LockCfg? = readableDatabase.rawQuery("SELECT text,font_size,cnt,total,cnt_day FROM lock_cfg WHERE id='main' AND deleted_at IS NULL", null).use {
+            if (it.moveToFirst()) LockCfg(it.getString(0).ifBlank { "오늘도 한 걸음씩" }, (it.getString(1).toFloatOrNull() ?: 32f).coerceIn(14f, 64f), it.getString(2).toIntOrNull() ?: 0, it.getString(3).toIntOrNull() ?: 0, it.getString(4)) else null
+        }
+        read()?.let { return it }
+        val v = ContentValues().apply { put("id", "main"); put("text", "오늘도 한 걸음씩"); put("created_at", System.currentTimeMillis()); put("updated_at", 0L) }
+        writableDatabase.insertWithOnConflict("lock_cfg", null, v, SQLiteDatabase.CONFLICT_IGNORE)
+        return read() ?: LockCfg("오늘도 한 걸음씩", 32f, 0, 0, "")
+    }
+
+    private fun lockUpdate(v: ContentValues) {
+        lockGet()
+        v.put("updated_at", now()); v.putNull("deleted_at")
+        writableDatabase.update("lock_cfg", v, "id='main'", null)
+    }
+    fun lockSetText(text: String) = lockUpdate(ContentValues().apply { put("text", text.trim().take(300).ifEmpty { "오늘도 한 걸음씩" }) })
+    fun lockSetFs(fs: Float) = lockUpdate(ContentValues().apply { put("font_size", fs.toInt().toString()) })
+    fun lockSetCount(cnt: Int, total: Int, day: String) = lockUpdate(ContentValues().apply { put("cnt", cnt.toString()); put("total", total.toString()); put("cnt_day", day) })
+
     class NowRow(val id: String, val text: String, val at: Long)
 
     fun nowAdd(text: String): String {
