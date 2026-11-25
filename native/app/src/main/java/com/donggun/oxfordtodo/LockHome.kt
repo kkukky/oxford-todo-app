@@ -60,6 +60,9 @@ fun LockHome(onClose: () -> Unit) {
     var count by remember { mutableIntStateOf(if (db.getSetting("lock_cnt_day", "") == today) (db.getSetting("lock_cnt", "0").toIntOrNull() ?: 0) else 0) }
     var total by remember { mutableIntStateOf(maxOf(db.getSetting("lock_total", "0").toIntOrNull() ?: 0, count)) }
     var editing by remember { mutableStateOf(false) }
+    var maxFs by remember { mutableFloatStateOf((db.getSetting("lock_fs", "32").toFloatOrNull() ?: 32f).coerceIn(14f, 64f)) }
+    fun saveFs() { db.setSetting("lock_fs", maxFs.toInt().toString()) }
+    val hide = imeOn && !editing
     var text by remember { mutableStateOf("") }
     var flash by remember { mutableStateOf("") }
     LaunchedEffect(flash) { if (flash.isNotEmpty()) { kotlinx.coroutines.delay(2000); flash = "" } }
@@ -102,9 +105,9 @@ fun LockHome(onClose: () -> Unit) {
             Text(SimpleDateFormat("HH:mm", Locale.KOREA).format(now), color = LK_INK, fontSize = 88.sp, fontWeight = FontWeight.Light, letterSpacing = 2.sp)
             Text(SimpleDateFormat("M월 d일 EEEE", Locale.KOREA).format(now), color = LK_SUB, fontSize = 16.sp)
         }
-        Column((if (imeOn) Modifier else Modifier.weight(1f)).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            if (!imeOn) BoxWithConstraints(Modifier.weight(1f, fill = false).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                var fs by remember(message, maxHeight, maxWidth) { mutableStateOf(32f) }
+        Column((if (hide) Modifier else Modifier.weight(1f)).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            if (!hide) BoxWithConstraints(Modifier.weight(1f, fill = false).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                var fs by remember(message, maxHeight, maxWidth, maxFs) { mutableStateOf(maxFs) }
                 Text(
                     message, color = LK_INK, fontSize = fs.sp, fontFamily = Gaegu, textAlign = TextAlign.Center, lineHeight = (fs * 1.375f).sp,
                     overflow = TextOverflow.Clip,
@@ -112,8 +115,8 @@ fun LockHome(onClose: () -> Unit) {
                     modifier = Modifier.heightIn(min = 48.dp, max = maxHeight).clip12().clickable { bump() }.padding(horizontal = 10.dp, vertical = 8.dp),
                 )
             }
-            if (!imeOn) Spacer(Modifier.height(10.dp))
-            if (!imeOn) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (!hide) Spacer(Modifier.height(10.dp))
+            if (!hide) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$count / $total", color = LK_GRAY, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp))
                 Spacer(Modifier.weight(1f))
                 Box(
@@ -122,13 +125,24 @@ fun LockHome(onClose: () -> Unit) {
                     Alignment.Center,
                 ) { Text(if (editing) "취소" else "수정", color = Color(0xFFD6D2C4), fontSize = 14.sp) }
             }
+            if (editing) Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("글자 크기", color = LK_SUB, fontSize = 14.sp)
+                Box(Modifier.padding(start = 8.dp).size(34.dp).clip(RoundedCornerShape(50)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(50)).clickable { Idle.poke(); maxFs = (maxFs - 1f).coerceAtLeast(14f); saveFs() }, Alignment.Center) { Text("−", color = Color(0xFFD6D2C4), fontSize = 18.sp) }
+                androidx.compose.material3.Slider(
+                    value = maxFs, onValueChange = { Idle.poke(); maxFs = Math.round(it).toFloat() }, onValueChangeFinished = { saveFs() },
+                    valueRange = 14f..64f, modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                    colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = LK_BEIGE, activeTrackColor = LK_BEIGE, inactiveTrackColor = Color(0xFF3D3D3D)),
+                )
+                Box(Modifier.size(34.dp).clip(RoundedCornerShape(50)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(50)).clickable { Idle.poke(); maxFs = (maxFs + 1f).coerceAtMost(64f); saveFs() }, Alignment.Center) { Text("+", color = Color(0xFFD6D2C4), fontSize = 18.sp) }
+                Text(maxFs.toInt().toString(), color = LK_INK, fontSize = 14.sp, textAlign = TextAlign.End, modifier = Modifier.width(30.dp))
+            }
         }
         Text(
             "그것은 바로 내가 이루고자 하는 것을\n하루에 100번씩, 100일 동안 중얼거리는 것이었다.",
             color = Color(0xFFA8A496), fontSize = 13.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, bottom = 12.dp),
         )
-        Box((if (imeOn) Modifier.weight(1f) else Modifier.height(150.dp)).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF3D3D3D), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Box((if (hide) Modifier.weight(1f) else if (imeOn) Modifier.height(120.dp) else Modifier.height(150.dp)).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF3D3D3D), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
             BasicTextField(
                 value = text, onValueChange = { Idle.poke(); text = it.take(1000) }, modifier = Modifier.fillMaxSize(),
                 textStyle = TextStyle(color = LK_INK, fontSize = 16.sp, lineHeight = 24.sp), cursorBrush = SolidColor(LK_BEIGE),
