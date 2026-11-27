@@ -160,9 +160,9 @@ fun LockHome(onClose: () -> Unit) {
                 Alignment.Center,
             ) { Text("Now", color = LK_INK, fontSize = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp) }
             Box(
-                Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).background(LK_BEIGE).clickable { submit() },
+                Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFF666666), RoundedCornerShape(14.dp)).clickable { submit() },
                 Alignment.Center,
-            ) { Text(if (editing) "저장" else "할일추가", color = LK_NAVY, fontSize = 18.sp, fontWeight = FontWeight.Medium) }
+            ) { Text(if (editing) "저장" else "할일추가", color = LK_INK, fontSize = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp) }
         }
     }
 }
